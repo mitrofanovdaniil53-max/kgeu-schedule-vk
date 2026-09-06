@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Моё расписание</title>
-  <!-- VK design update v2: separated top shell + type color system -->
+  <!-- VK design update v5: Liquid Glass-inspired UI + SVG settings icon -->
   <script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
   <style>
     :root {
@@ -107,12 +107,32 @@
 
     /* Separate upper shell: dark, compact, visually distinct from schedule */
     .top-shell {
-      background: var(--top-bg);
-      color: var(--top-text);
-      padding: 18px 18px 18px;
+      position: relative;
+      isolation: isolate;
+      background: rgba(255,255,255,.72);
+      color: #101828;
+      padding: 16px 18px 14px;
+      border: 1px solid rgba(255,255,255,.78);
+      border-top: 0;
       border-radius: 0 0 30px 30px;
-      box-shadow: 0 10px 28px rgba(16,24,40,.12);
+      box-shadow:
+        0 14px 34px rgba(16,24,40,.10),
+        inset 0 1px 0 rgba(255,255,255,.95);
+      -webkit-backdrop-filter: blur(24px) saturate(155%);
+      backdrop-filter: blur(24px) saturate(155%);
+      overflow: hidden;
     }
+    .top-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background:
+        radial-gradient(circle at 12% 0%, rgba(255,255,255,.95), transparent 32%),
+        linear-gradient(135deg, rgba(255,255,255,.30), rgba(230,237,248,.18));
+      pointer-events: none;
+    }
+    .top-shell > * { position: relative; z-index: 1; }
 
     .schedule-shell {
       padding: 16px 14px 0;
@@ -127,8 +147,8 @@
       gap: 10px;
       margin-bottom: 14px;
     }
-    .top-shell .brand h1 { color: var(--top-text); }
-    .top-shell .brand .sub { color: var(--top-muted); }
+    .top-shell .brand h1 { color: #101828; }
+    .top-shell .brand .sub { color: #667085; }
     .brand {
       display: flex;
       align-items: center;
@@ -154,23 +174,31 @@
     }
     .top-actions { display: flex; gap: 8px; flex-shrink: 0; }
     .icon-btn {
-      width: 48px; height: 48px;
-      border: 1px solid var(--top-border);
-      background: var(--top-button);
-      border-radius: 16px;
-      color: var(--top-text);
+      width: 44px; height: 44px;
+      border: 1px solid rgba(255,255,255,.82);
+      background: rgba(255,255,255,.46);
+      border-radius: 15px;
+      color: #344054;
       font-size: 20px;
       display: grid; place-items: center;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
+      box-shadow:
+        0 3px 12px rgba(16,24,40,.07),
+        inset 0 1px 0 rgba(255,255,255,.9);
+      -webkit-backdrop-filter: blur(16px) saturate(145%);
+      backdrop-filter: blur(16px) saturate(145%);
+      transition: transform .16s ease, background .16s ease, opacity .16s ease;
     }
-    .icon-btn:active { opacity: 0.7; }
+    .icon-btn:hover { background: rgba(255,255,255,.68); }
+    .icon-btn:active { opacity: 0.72; transform: scale(.94); }
+    .icon-btn svg { width: 20px; height: 20px; display:block; }
     .icon-btn.spin { animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     .status-line {
-      font-size: 13px; color: var(--top-muted);
-      margin: -6px 0 16px;
+      font-size: 12px; color: #667085;
+      margin: -4px 0 12px;
       display: flex; align-items: center; gap: 6px;
     }
     .status-dot {
@@ -182,32 +210,45 @@
 
     /* Tabs */
     .tabs {
-      display: flex; gap: 8px;
+      display: flex;
+      gap: 4px;
       margin-bottom: 0;
+      padding: 4px;
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
       scrollbar-width: none;
+      border: 1px solid rgba(255,255,255,.74);
+      border-radius: 22px;
+      background: rgba(255,255,255,.38);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.86),
+        0 4px 16px rgba(16,24,40,.06);
+      -webkit-backdrop-filter: blur(18px) saturate(150%);
+      backdrop-filter: blur(18px) saturate(150%);
     }
     .tabs::-webkit-scrollbar { display: none; }
     .tab {
-      border: 0; border-radius: 22px;
-      min-height: 48px;
-      padding: 10px 18px;
-      background: rgba(255,255,255,.08);
-      color: var(--top-muted);
-      font-weight: 650; font-size: 14px;
+      border: 0; border-radius: 17px;
+      min-height: 42px;
+      padding: 8px 15px;
+      background: transparent;
+      color: #667085;
+      font-weight: 650; font-size: 13px;
       white-space: nowrap; cursor: pointer;
       border: 1px solid transparent;
       flex-shrink: 0;
       -webkit-tap-highlight-color: transparent;
-      transition: background .15s, color .15s, border-color .15s;
+      transition: background .20s ease, color .20s ease, box-shadow .20s ease, transform .16s ease;
     }
     .tab.active {
-      background: #ffffff;
-      border-color: #ffffff;
+      background: rgba(255,255,255,.88);
+      border-color: rgba(255,255,255,.92);
       color: #101828;
-      box-shadow: 0 3px 10px rgba(0,0,0,.10);
+      box-shadow:
+        0 4px 12px rgba(16,24,40,.09),
+        inset 0 1px 0 rgba(255,255,255,.95);
     }
+    .tab:active { transform: scale(.97); }
 
     /* Date nav */
     .date-nav {
@@ -333,6 +374,25 @@
     .card.replace {
       border-color: color-mix(in srgb, var(--replace) 45%, var(--border));
       background: color-mix(in srgb, var(--replace) 6%, var(--card));
+    }
+    /* Subtle glass surface: content remains high-contrast and readable. */
+    .hero, .next-mini, .card {
+      -webkit-backdrop-filter: blur(18px) saturate(120%);
+      backdrop-filter: blur(18px) saturate(120%);
+    }
+    .card {
+      background: color-mix(in srgb, var(--card) 88%, transparent);
+      border-color: color-mix(in srgb, #ffffff 55%, var(--border));
+      box-shadow:
+        0 10px 28px rgba(16,24,40,.055),
+        inset 0 1px 0 rgba(255,255,255,.62);
+    }
+    html.vk-dark .card {
+      background: color-mix(in srgb, var(--card) 92%, transparent);
+      border-color: color-mix(in srgb, #ffffff 8%, var(--border));
+      box-shadow:
+        0 10px 28px rgba(0,0,0,.18),
+        inset 0 1px 0 rgba(255,255,255,.05);
     }
     .card.now {
       border-color: color-mix(in srgb, var(--ok) 50%, var(--border));
@@ -527,8 +587,19 @@
 
     .modal { position: fixed; inset: 0; z-index: 100; display: none; }
     .modal.open { display: block; }
-    .modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,.45); backdrop-filter:blur(2px); }
-    .modal-sheet { position:absolute; left:0; right:0; bottom:0; max-width:480px; margin:0 auto; background:var(--card); color:var(--text); border-radius:20px 20px 0 0; padding:16px 16px calc(18px + var(--safe-bottom)); box-shadow:0 -8px 30px rgba(0,0,0,.18); max-height:88dvh; overflow:auto; }
+    .modal-backdrop { position:absolute; inset:0; background:rgba(15,23,42,.28); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); }
+    .modal-sheet {
+      position:absolute; left:0; right:0; bottom:0; max-width:480px; margin:0 auto;
+      background:color-mix(in srgb, var(--card) 88%, transparent);
+      color:var(--text);
+      border:1px solid color-mix(in srgb, #ffffff 42%, var(--border));
+      border-radius:26px 26px 0 0;
+      padding:16px 16px calc(18px + var(--safe-bottom));
+      box-shadow:0 -12px 40px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.45);
+      -webkit-backdrop-filter:blur(24px) saturate(145%);
+      backdrop-filter:blur(24px) saturate(145%);
+      max-height:88dvh; overflow:auto;
+    }
     .modal-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
     .modal-head h2 { font-size:18px; }
     .modal-close { flex:0 0 auto; }
@@ -635,29 +706,42 @@
       text-overflow:ellipsis;
     }
     .top-actions { flex-shrink:0; }
-    .top-shell .icon-btn { color:#fff; background:var(--top-button); }
-    /* Dark mode keeps the upper shell light by request. */
-    html.vk-dark .top-shell {
-      background:#f7f9fc;
-      color:#101828;
-      box-shadow:0 10px 28px rgba(0,0,0,.20);
+    /* Liquid Glass upper shell stays light in every theme. */
+    .top-shell .icon-btn {
+      color:#344054;
+      background:rgba(255,255,255,.46);
+      border-color:rgba(255,255,255,.82);
     }
-    html.vk-dark .top-shell .brand h1 { color:#101828; }
+    html.vk-dark .top-shell,
+    html.vk-light .top-shell {
+      background:rgba(255,255,255,.72);
+      color:#101828;
+      box-shadow:
+        0 14px 34px rgba(16,24,40,.10),
+        inset 0 1px 0 rgba(255,255,255,.95);
+    }
+    html.vk-dark .top-shell .brand h1,
+    html.vk-light .top-shell .brand h1 { color:#101828; }
     html.vk-dark .top-shell .brand .sub,
-    html.vk-dark .top-shell .status-line { color:#667085; }
-    html.vk-dark .top-shell .icon-btn {
-      color:#101828;
-      background:#eef2f7;
-      border-color:#e4e7ec;
+    html.vk-dark .top-shell .status-line,
+    html.vk-light .top-shell .brand .sub,
+    html.vk-light .top-shell .status-line { color:#667085; }
+    html.vk-dark .top-shell .icon-btn,
+    html.vk-light .top-shell .icon-btn {
+      color:#344054;
+      background:rgba(255,255,255,.46);
+      border-color:rgba(255,255,255,.82);
     }
-    html.vk-dark .top-shell .tab {
-      background:#eef2f7;
+    html.vk-dark .top-shell .tab,
+    html.vk-light .top-shell .tab {
+      background:transparent;
       color:#667085;
     }
-    html.vk-dark .top-shell .tab.active {
-      background:#1557d6;
-      color:#fff;
-      border-color:#1557d6;
+    html.vk-dark .top-shell .tab.active,
+    html.vk-light .top-shell .tab.active {
+      background:rgba(255,255,255,.88);
+      color:#101828;
+      border-color:rgba(255,255,255,.92);
     }
     .kgeu-logo-img {
       width:48px; height:48px; object-fit:contain; flex:0 0 48px;
@@ -842,7 +926,14 @@
     <div class="top-actions">
       <button class="icon-btn" id="btn-share" title="Поделиться" aria-label="Поделиться">↗</button>
       <button class="icon-btn" id="btn-refresh" title="Обновить" aria-label="Обновить">↻</button>
-      <button class="icon-btn" id="btn-group" title="Настройки" aria-label="Настройки">⚙</button>
+      <button class="icon-btn" id="btn-group" title="Настройки" aria-label="Настройки">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z"
+                fill="none" stroke="currentColor" stroke-width="1.8"/>
+          <path d="M19.05 13.35a7.7 7.7 0 0 0 .05-1.35 7.7 7.7 0 0 0-.05-1.35l1.45-1.12-1.8-3.12-1.72.67a7.7 7.7 0 0 0-2.34-1.35L14.4 4h-3.6l-.24 1.73A7.7 7.7 0 0 0 8.22 7.08L6.5 6.41 4.7 9.53l1.45 1.12A7.7 7.7 0 0 0 6.1 12c0 .46.05.91.05 1.35L4.7 14.47l1.8 3.12 1.72-.67a7.7 7.7 0 0 0 2.34 1.35L10.8 20h3.6l.24-1.73a7.7 7.7 0 0 0 2.34-1.35l1.72.67 1.8-3.12-1.45-1.12Z"
+                fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
   </div>
   <div class="status-line" id="status-line">
