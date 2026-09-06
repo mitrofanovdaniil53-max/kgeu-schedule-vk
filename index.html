@@ -544,6 +544,27 @@
     .saved-group-name { font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .saved-group-id { font-size:10px; color:var(--muted); margin-top:2px; }
     .saved-group-del { border:0; background:transparent; color:var(--muted); font-size:18px; padding:2px 5px; cursor:pointer; }
+    .group-directory-results {
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      margin:8px 0 4px;
+    }
+    .group-result {
+      width:100%;
+      border:1px solid var(--border);
+      background:var(--card);
+      color:var(--text);
+      border-radius:14px;
+      padding:11px 12px;
+      text-align:left;
+      cursor:pointer;
+    }
+    .group-result:active { background:var(--accent-soft); }
+    .group-result-name { font-size:14px; font-weight:750; }
+    .group-result-meta { margin-top:3px; font-size:11px; color:var(--muted); }
+    .group-directory-loading { font-size:12px; color:var(--muted); padding:5px 2px; }
+
     .primary-btn { width:100%; border:0; background:var(--accent); color:#fff; border-radius:12px; padding:12px; font-weight:700; cursor:pointer; }
     .feature-box { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:12px 14px; margin:10px 0; box-shadow:var(--shadow); }
     .feature-title { font-size:13px; font-weight:750; margin-bottom:7px; }
@@ -757,16 +778,31 @@
 (function () {
   window.formatTeacherFullName = function (raw) {
     if (!raw) return '';
-    const s = String(raw).replace(/\\s+/g, ' ').trim();
+    const s = String(raw).replace(/\s+/g, ' ').trim();
     if (!s) return '';
 
-    const parts = s.split(' ').filter(Boolean);
-    if (parts.length === 1) return parts[0];
-    if (parts.length === 2) return parts[1] + ' ' + parts[0];
+    // Explicit full-name mappings supplied/confirmed for this project.
+    // The KGEU schedule API may return surname + initials, so we only
+    // expand names when the full spelling is known; we never invent it.
+    const FULL_NAMES = {
+      'Митрофанов Д.А.': 'Митрофанов Даниил Алексеевич',
+      'Митрофанов Д. А.': 'Митрофанов Даниил Алексеевич',
+      'Хабибулин А. Б.': 'Хабибулин Альберт Бахзанурович',
+      'Железнякова Ю. Е.': 'Железнякова Юлия Евгеньевна',
+      'Куценко С. М.': 'Куценко Сергей Михайлович'
+    };
 
-    // KGEU normally supplies: Surname Given Patronymic.
-    // UI requirement: Given Patronymic Surname.
-    return parts.slice(1).join(' ') + ' ' + parts[0];
+    if (FULL_NAMES[s]) return FULL_NAMES[s];
+
+    // If the API already supplies a full name, preserve its order.
+    const parts = s.split(' ').filter(Boolean);
+    if (parts.length >= 3 && parts.every(function (p) { return p.length > 1; })) {
+      return s;
+    }
+
+    // For unknown abbreviated names, keep the API value rather than
+    // displaying a misleading invented full name.
+    return s;
   };
 })();
 </script>
@@ -864,18 +900,18 @@
         <span class="current-group-check">✓</span>
       </div>
 
-      <label class="field-label" for="group-name-input">Название группы</label>
-      <input class="field" id="group-name-input" autocomplete="off" placeholder="Например, М-1-25">
+      <label class="field-label" for="group-name-input">Выбрать группу</label>
+      <input class="field" id="group-name-input" autocomplete="off" placeholder="Например, РСО-2-24">
+      <div class="mini-note settings-note">Начните вводить название группы — приложение найдёт её в актуальном справочнике КГЭУ. ID группы пользователю не нужен.</div>
+      <div id="group-directory-results" class="group-directory-results"></div>
 
-      <div class="mini-note settings-note">ID группы нужен только для технического подключения к расписанию. В дальнейшем его можно полностью скрыть за поиском групп.</div>
       <details class="advanced-settings">
         <summary>Расширенный ввод ID</summary>
         <label class="field-label" for="group-id-input">ID группы</label>
         <input class="field" id="group-id-input" inputmode="numeric" autocomplete="off" placeholder="Например, 14541">
       </details>
 
-      <div class="saved-title">Сохранённые группы</div>
-      <input class="field" id="group-search-input" autocomplete="off" placeholder="Поиск среди сохранённых групп…">
+      <div class="saved-title">Последние выбранные группы</div>
       <div id="saved-groups" class="saved-groups"></div>
 
       <button class="primary-btn" id="group-save">Сохранить и открыть</button>
@@ -928,6 +964,9 @@
   // If the app is opened directly without a groupId, keep M-1-25 as a safe fallback.
   const params = new URLSearchParams(window.location.search);
   const API = 'https://kabinet.kgeu.ru/api/Rasp';
+  const GROUP_DIRECTORY_API = 'https://kabinet.kgeu.ru/api/raspGrouplist?year=2026-2027';
+  const GROUP_DIRECTORY_CACHE_KEY = 'kgeu_vk_group_directory_2026_2027';
+  const GROUP_DIRECTORY_TTL = 6 * 60 * 60 * 1000;
   const FIRST_STUDY = new Date('2026-09-02T00:00:00');
   const DEFAULT_GROUP_ID = 14541;
   const DEFAULT_GROUP_NAME = 'М-1-25';
@@ -1136,20 +1175,32 @@
   }
 
   // ——— API ———
-  async function fetchRasp(params) {
+  async function fetchRasp(params, options) {
+    options = options || {};
     const qs = Object.keys(params).map(function (k) {
       return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
     }).join('&');
     const res = await fetch(API + '?' + qs);
     if (!res.ok) throw new Error('API ' + res.status);
     const data = await res.json();
-    if (data && data.data && data.data.info && data.data.info.group) {
-      const gi = data.data.info.group;
-      if (gi.name) GROUP_NAME = gi.name;
-      INSTITUTE_NAME = gi.institute || gi.instituteName || gi.facultyShort || gi.facultyNameShort || gi.shortInstitute || INSTITUTE_NAME || '';
+    const groupInfo = data && data.data && data.data.info && data.data.info.group
+      ? data.data.info.group
+      : null;
+
+    if (groupInfo && options.updateMeta !== false) {
+      if (groupInfo.name) GROUP_NAME = groupInfo.name;
+      INSTITUTE_NAME = groupInfo.institute || groupInfo.instituteName || groupInfo.facultyShort || groupInfo.facultyNameShort || groupInfo.shortInstitute || INSTITUTE_NAME || '';
       updateGroupLabel();
     }
-    return (data && data.data && data.data.rasp || []).map(normalize).filter(function (x) { return x.date; });
+
+    const lessons = (data && data.data && data.data.rasp || [])
+      .map(normalize)
+      .filter(function (x) { return x.date; });
+
+    if (options.returnMeta) {
+      return { lessons: lessons, groupInfo: groupInfo };
+    }
+    return lessons;
   }
 
   // ——— Дедупликация занятий ———
@@ -1709,25 +1760,151 @@
   }
 
   function getSavedGroups() {
-    try { const v = JSON.parse(localStorage.getItem(GROUPS_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch(e){ return []; }
+    try {
+      const v = JSON.parse(localStorage.getItem(GROUPS_KEY) || '[]');
+      return Array.isArray(v) ? v : [];
+    } catch(e) { return []; }
   }
-  function saveGroups(list) { try { localStorage.setItem(GROUPS_KEY, JSON.stringify(list.slice(0,10))); } catch(e){} }
+
+  function saveGroups(list) {
+    try { localStorage.setItem(GROUPS_KEY, JSON.stringify(list.slice(0,10))); } catch(e){}
+  }
+
   function rememberGroup(id, name) {
-    const list = getSavedGroups().filter(function(g){ return Number(g.id) !== Number(id); });
-    list.unshift({ id:Number(id), name:String(name||'Группа '+id).trim() });
+    const n = Number(id);
+    if (!n) return;
+    const cleanName = String(name || 'Группа ' + n).trim();
+    const list = getSavedGroups().filter(function(g){ return Number(g.id) !== n; });
+    list.unshift({ id:n, name:cleanName });
     saveGroups(list);
   }
-  function renderSavedGroups(query) {
-    const box=document.getElementById('saved-groups'); if(!box) return;
-    const q=String(query||'').trim().toLowerCase();
-    const list=getSavedGroups().filter(function(g){ return !q || String(g.name||'').toLowerCase().includes(q) || String(g.id).includes(q); });
-    box.innerHTML=list.length ? list.map(function(g){ return '<div class="saved-group" data-sgid="'+g.id+'"><div class="saved-group-main"><div class="saved-group-name">'+escapeHtml(g.name)+'</div></div><button class="saved-group-del" data-delid="'+g.id+'" aria-label="Удалить">×</button></div>'; }).join('') : '<div class="mini-note">Ничего не найдено.</div>';
+
+  function renderSavedGroups() {
+    const box=document.getElementById('saved-groups');
+    if(!box) return;
+    const list=getSavedGroups();
+    box.innerHTML=list.length
+      ? list.map(function(g){
+          return '<div class="saved-group" data-sgid="' + g.id + '">' +
+            '<div class="saved-group-main">' +
+              '<div class="saved-group-name">' + escapeHtml(g.name) + '</div>' +
+            '</div>' +
+            '<button class="saved-group-del" data-delid="' + g.id + '" aria-label="Удалить">×</button>' +
+          '</div>';
+        }).join('')
+      : '<div class="mini-note">Здесь появятся последние выбранные группы.</div>';
+  }
+
+  function normalizeGroupSearch(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/ё/g, 'е')
+      .replace(/[^a-zа-я0-9]+/gi, '');
+  }
+
+  let groupDirectory = null;
+  let groupDirectoryPromise = null;
+
+  async function loadGroupDirectory() {
+    if (groupDirectory) return groupDirectory;
+
+    try {
+      const cached = JSON.parse(localStorage.getItem(GROUP_DIRECTORY_CACHE_KEY) || 'null');
+      if (cached && Array.isArray(cached.items) && cached.savedAt && Date.now() - cached.savedAt < GROUP_DIRECTORY_TTL) {
+        groupDirectory = cached.items;
+        return groupDirectory;
+      }
+    } catch(e) {}
+
+    if (groupDirectoryPromise) return groupDirectoryPromise;
+
+    groupDirectoryPromise = fetch(GROUP_DIRECTORY_API)
+      .then(function(res) {
+        if (!res.ok) throw new Error('groups API ' + res.status);
+        return res.json();
+      })
+      .then(function(data) {
+        const list = Array.isArray(data && data.data) ? data.data : [];
+        groupDirectory = list.map(function(g) {
+          return {
+            id: Number(g.id),
+            name: String(g.name || '').trim(),
+            course: g.kurs != null ? g.kurs : '',
+            institute: String(g.facul || '').trim(),
+            facultyId: g.facultyID || null
+          };
+        }).filter(function(g) { return g.id && g.name; });
+
+        try {
+          localStorage.setItem(GROUP_DIRECTORY_CACHE_KEY, JSON.stringify({
+            savedAt: Date.now(),
+            items: groupDirectory
+          }));
+        } catch(e) {}
+
+        return groupDirectory;
+      })
+      .finally(function() {
+        groupDirectoryPromise = null;
+      });
+
+    return groupDirectoryPromise;
+  }
+
+  function renderGroupDirectoryResults(query) {
+    const box = document.getElementById('group-directory-results');
+    if (!box) return;
+
+    const q = normalizeGroupSearch(query);
+    if (!q) {
+      box.innerHTML = '';
+      return;
+    }
+
+    if (!groupDirectory) {
+      box.innerHTML = '<div class="group-directory-loading">Ищем группу…</div>';
+      loadGroupDirectory().then(function(){ renderGroupDirectoryResults(query); })
+        .catch(function(){
+          box.innerHTML = '<div class="mini-note">Не удалось загрузить справочник групп. Можно использовать расширенный ввод ID.</div>';
+        });
+      return;
+    }
+
+    const matches = groupDirectory
+      .filter(function(g) {
+        const name = normalizeGroupSearch(g.name);
+        const institute = normalizeGroupSearch(g.institute);
+        return name.includes(q) || institute.includes(q);
+      })
+      .sort(function(a,b) {
+        const an = normalizeGroupSearch(a.name);
+        const bn = normalizeGroupSearch(b.name);
+        const ae = an === q ? 0 : (an.startsWith(q) ? 1 : 2);
+        const be = bn === q ? 0 : (bn.startsWith(q) ? 1 : 2);
+        return ae - be || an.localeCompare(bn, 'ru');
+      })
+      .slice(0, 12);
+
+    if (!matches.length) {
+      box.innerHTML = '<div class="mini-note">Группа не найдена.</div>';
+      return;
+    }
+
+    box.innerHTML = matches.map(function(g) {
+      return '<button type="button" class="group-result" data-group-directory-id="' + g.id + '">' +
+        '<div class="group-result-name">' + escapeHtml(g.name) + '</div>' +
+        '<div class="group-result-meta">' +
+          (g.institute ? escapeHtml(g.institute) + ' · ' : '') +
+          (g.course ? 'Курс ' + escapeHtml(g.course) : '') +
+        '</div>' +
+      '</button>';
+    }).join('');
   }
 
   function openGroupModal() {
     const modal=document.getElementById('group-modal'); if(!modal) return;
     document.getElementById('group-id-input').value=activeGroupId;
-    document.getElementById('group-name-input').value=GROUP_NAME;
+    document.getElementById('group-name-input').value='';
     const theme=document.getElementById('theme-select'); if(theme) theme.value=settings.theme;
     const density=document.getElementById('density-select'); if(density) density.value=settings.density || 'standard';
     const st=document.getElementById('show-teachers-setting'); if(st) st.checked=settings.showTeachers !== false;
@@ -1735,20 +1912,90 @@
     const sty=document.getElementById('show-types-setting'); if(sty) sty.checked=settings.showTypes !== false;
     const sb=document.getElementById('show-breaks-setting'); if(sb) sb.checked=settings.showBreaks !== false;
     const ar=document.getElementById('auto-refresh-setting'); if(ar) ar.checked=settings.autoRefresh !== false;
-    renderSavedGroups('');
-    const search=document.getElementById('group-search-input'); if(search) search.value='';
+
+    renderSavedGroups();
+
+    const search=document.getElementById('group-name-input');
+    if(search) {
+      search.value='';
+      renderGroupDirectoryResults('');
+    }
+
     modal.classList.add('open'); modal.setAttribute('aria-hidden','false');
   }
-  function closeGroupModal() { const m=document.getElementById('group-modal'); if(m){m.classList.remove('open');m.setAttribute('aria-hidden','true');} }
-  async function switchGroup(id,name) {
-    id=Number(id); if(!id){toast('Введите корректный ID группы');return;}
-    closeGroupModal();
-    setActiveGroup(id,name || 'Группа '+id); rememberGroup(id,GROUP_NAME);
-    allLessons=[]; loadedMonths={}; selectedDate=null; weekAnchor=null; weekSelected=null; teacherView=null; lastUpdated=null;
-    document.getElementById('tabs').style.display='';
-    document.getElementById('app').innerHTML='<div class="loading">Загружаем '+escapeHtml(GROUP_NAME)+'…</div>';
-    updateStatusLine();
-    await refresh(false);
+
+  function closeGroupModal() {
+    const m=document.getElementById('group-modal');
+    if(m){m.classList.remove('open');m.setAttribute('aria-hidden','true');}
+  }
+
+  async function switchGroup(id,name,meta) {
+    id=Number(id);
+    if(!id){toast('Выберите группу из списка или введите корректный ID');return;}
+
+    const previous = {
+      id: activeGroupId,
+      name: GROUP_NAME,
+      institute: INSTITUTE_NAME,
+      cacheKey: CACHE_KEY,
+      lessons: allLessons,
+      loadedMonths: loadedMonths,
+      selectedDate: selectedDate,
+      weekAnchor: weekAnchor,
+      weekSelected: weekSelected,
+      teacherView: teacherView,
+      lastUpdated: lastUpdated
+    };
+
+    const baseDate = new Date() < FIRST_STUDY ? FIRST_STUDY : new Date();
+
+    try {
+      const probe = await fetchRasp(
+        { idGroup: id, sdate: isoDate(baseDate) },
+        { updateMeta: false, returnMeta: true }
+      );
+
+      if (!probe.groupInfo && !probe.lessons.length) {
+        throw new Error('group not found');
+      }
+
+      const resolvedName = (meta && meta.name) || (probe.groupInfo && probe.groupInfo.name) || name || ('Группа ' + id);
+      const resolvedInstitute =
+        (meta && meta.institute) ||
+        (probe.groupInfo && (probe.groupInfo.institute || probe.groupInfo.instituteName || probe.groupInfo.facultyShort || probe.groupInfo.facultyNameShort || probe.groupInfo.shortInstitute)) ||
+        '';
+
+      setActiveGroup(id, resolvedName);
+      INSTITUTE_NAME = resolvedInstitute || INSTITUTE_NAME || '';
+      updateGroupLabel();
+
+      rememberGroup(id, resolvedName);
+
+      allLessons=[]; loadedMonths={}; selectedDate=null; weekAnchor=null; weekSelected=null; teacherView=null; lastUpdated=null;
+      document.getElementById('tabs').style.display='';
+      document.getElementById('app').innerHTML='<div class="loading">Загружаем '+escapeHtml(GROUP_NAME)+'…</div>';
+      updateStatusLine();
+      closeGroupModal();
+
+      await refresh(false);
+    } catch (e) {
+      // Critical: failed group switch must not destroy the currently working group/history.
+      activeGroupId = previous.id;
+      GROUP_NAME = previous.name;
+      INSTITUTE_NAME = previous.institute;
+      CACHE_KEY = previous.cacheKey;
+      allLessons = previous.lessons;
+      loadedMonths = previous.loadedMonths;
+      selectedDate = previous.selectedDate;
+      weekAnchor = previous.weekAnchor;
+      weekSelected = previous.weekSelected;
+      teacherView = previous.teacherView;
+      lastUpdated = previous.lastUpdated;
+      updateGroupLabel();
+      renderSavedGroups();
+      toast('Не удалось открыть группу. Текущая группа сохранена.');
+      throw e;
+    }
   }
   function bindGroupModal() {
     const btn=document.getElementById('btn-group'); if(btn) btn.addEventListener('click',openGroupModal);
@@ -1758,10 +2005,28 @@
       if(target.getAttribute && target.getAttribute('data-close-modal')) closeGroupModal();
       const del=target.getAttribute && target.getAttribute('data-delid');
       if(del){ saveGroups(getSavedGroups().filter(function(g){return Number(g.id)!==Number(del);})); openGroupModal(); return; }
+      const dir=target.closest && target.closest('[data-group-directory-id]');
+      if(dir){
+        const gid=Number(dir.getAttribute('data-group-directory-id'));
+        const g=(groupDirectory || []).find(function(x){return Number(x.id)===gid;});
+        if(g){
+          document.getElementById('group-id-input').value=g.id;
+          document.getElementById('group-name-input').value=g.name;
+          switchGroup(g.id,g.name,g).catch(function(){});
+        }
+        return;
+      }
+
       const sg=target.closest && target.closest('[data-sgid]');
-      if(sg){ const g=getSavedGroups().find(function(x){return Number(x.id)===Number(sg.getAttribute('data-sgid'));}); if(g) switchGroup(g.id,g.name); }
+      if(sg){
+        const g=getSavedGroups().find(function(x){return Number(x.id)===Number(sg.getAttribute('data-sgid'));});
+        if(g) switchGroup(g.id,g.name).catch(function(){});
+      }
     });
-    const search=document.getElementById('group-search-input'); if(search) search.addEventListener('input',function(){ renderSavedGroups(search.value); });
+    const groupSearch=document.getElementById('group-name-input');
+    if(groupSearch) groupSearch.addEventListener('input',function(){
+      renderGroupDirectoryResults(groupSearch.value);
+    });
     const theme=document.getElementById('theme-select'); if(theme) theme.addEventListener('change',function(){ settings.theme=theme.value; saveSettings(); applyTheme(); });
     const density=document.getElementById('density-select'); if(density) density.addEventListener('change',function(){ settings.density=density.value; saveSettings(); applyTheme(); });
     const st=document.getElementById('show-teachers-setting'); if(st) st.addEventListener('change',function(){ settings.showTeachers=st.checked; saveSettings(); render(); });
@@ -1769,7 +2034,13 @@
     const sty=document.getElementById('show-types-setting'); if(sty) sty.addEventListener('change',function(){ settings.showTypes=sty.checked; saveSettings(); render(); });
     const sb=document.getElementById('show-breaks-setting'); if(sb) sb.addEventListener('change',function(){ settings.showBreaks=sb.checked; saveSettings(); render(); });
     const ar=document.getElementById('auto-refresh-setting'); if(ar) ar.addEventListener('change',function(){ settings.autoRefresh=ar.checked; saveSettings(); });
-    const save=document.getElementById('group-save'); if(save) save.addEventListener('click',function(){ switchGroup(document.getElementById('group-id-input').value, document.getElementById('group-name-input').value); });
+    const save=document.getElementById('group-save');
+    if(save) save.addEventListener('click',function(){
+      switchGroup(
+        document.getElementById('group-id-input').value,
+        document.getElementById('group-name-input').value
+      ).catch(function(){});
+    });
   }
   bindGroupModal();
 
