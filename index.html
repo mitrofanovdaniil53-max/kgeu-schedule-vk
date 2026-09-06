@@ -1140,12 +1140,26 @@
   const DEFAULT_GROUP_NAME = 'М-1-25';
   const DEFAULT_INSTITUTE_NAME = 'ИЦТЭ';
   const GROUPS_KEY = 'kgeu_vk_groups_v2';
+  const ACTIVE_GROUP_KEY = 'kgeu_vk_active_group_v1';
   const SETTINGS_KEY = 'kgeu_vk_settings_v1';
   const CACHE_TTL = 30 * 60 * 1000;
 
   let activeGroupId = Number(params.get('groupId')) || 0;
   let GROUP_NAME = params.get('groupName') || '';
   let INSTITUTE_NAME = params.get('institute') || '';
+
+  // Restore the last explicitly selected group when the Mini App is reopened.
+  // A group passed in the URL has priority (e.g. shared/deep-linked schedule).
+  if (!activeGroupId) {
+    try {
+      const savedActive = JSON.parse(localStorage.getItem(ACTIVE_GROUP_KEY) || 'null');
+      if (savedActive && Number(savedActive.id)) {
+        activeGroupId = Number(savedActive.id);
+        GROUP_NAME = String(savedActive.name || '');
+        INSTITUTE_NAME = String(savedActive.institute || '');
+      }
+    } catch (e) {}
+  }
   let CACHE_KEY = '';
   let settings = loadSettings();
 
@@ -1191,10 +1205,21 @@
     CACHE_KEY = 'kgeu_rasp_vk_v2_' + activeGroupId;
     updateGroupLabel();
   }
+
+  function saveActiveGroup() {
+    try {
+      localStorage.setItem(ACTIVE_GROUP_KEY, JSON.stringify({
+        id: activeGroupId,
+        name: GROUP_NAME,
+        institute: INSTITUTE_NAME || ''
+      }));
+    } catch (e) {}
+  }
   if (!activeGroupId) setActiveGroup(DEFAULT_GROUP_ID, DEFAULT_GROUP_NAME);
   else setActiveGroup(activeGroupId, GROUP_NAME);
   if (!INSTITUTE_NAME && activeGroupId === DEFAULT_GROUP_ID) INSTITUTE_NAME = DEFAULT_INSTITUTE_NAME;
   updateGroupLabel();
+  saveActiveGroup();
   rememberGroup(activeGroupId, GROUP_NAME);
 
   function updateGroupLabel() {
@@ -2193,6 +2218,7 @@
       setActiveGroup(id, resolvedName);
       INSTITUTE_NAME = resolvedInstitute || INSTITUTE_NAME || '';
       updateGroupLabel();
+      saveActiveGroup();
 
       rememberGroup(id, resolvedName);
 
