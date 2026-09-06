@@ -134,6 +134,34 @@
     }
     .top-shell > * { position: relative; z-index: 1; }
 
+    /* Theme-aware Liquid Glass header: dark in light mode, light in dark mode. */
+    .vk-light .top-shell {
+      background: rgba(17,24,39,.90); color:#fff; border-color:rgba(255,255,255,.10);
+      box-shadow:0 14px 34px rgba(16,24,40,.18), inset 0 1px 0 rgba(255,255,255,.10);
+    }
+    .vk-light .top-shell::before {
+      background:radial-gradient(circle at 12% 0%, rgba(59,130,246,.22), transparent 32%), linear-gradient(135deg, rgba(255,255,255,.06), rgba(15,23,42,.10));
+    }
+    .vk-light .top-shell .brand h1 { color:#fff; }
+    .vk-light .top-shell .brand .sub { color:#aeb8c8; }
+    .vk-light .top-shell .icon-btn { color:#fff; background:rgba(255,255,255,.08); border-color:rgba(255,255,255,.12); }
+    .vk-light .tabs { background:rgba(255,255,255,.07); border-color:rgba(255,255,255,.10); box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 4px 16px rgba(0,0,0,.12); }
+    .vk-light .tab { color:#aeb8c8; }
+    .vk-light .tab.active { background:rgba(255,255,255,.16); border-color:rgba(255,255,255,.18); color:#fff; box-shadow:0 4px 12px rgba(0,0,0,.14), inset 0 1px 0 rgba(255,255,255,.12); }
+    .vk-dark .top-shell {
+      background:rgba(255,255,255,.78); color:#101828; border-color:rgba(255,255,255,.82);
+      box-shadow:0 14px 34px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.96);
+    }
+    .vk-dark .top-shell::before {
+      background:radial-gradient(circle at 12% 0%, rgba(255,255,255,.96), transparent 32%), linear-gradient(135deg, rgba(255,255,255,.32), rgba(230,237,248,.18));
+    }
+    .vk-dark .top-shell .brand h1 { color:#101828; }
+    .vk-dark .top-shell .brand .sub { color:#667085; }
+    .vk-dark .top-shell .icon-btn { color:#101828; background:rgba(255,255,255,.44); border-color:rgba(255,255,255,.62); }
+    .vk-dark .tabs { background:rgba(255,255,255,.38); border-color:rgba(255,255,255,.74); }
+    .vk-dark .tab { color:#667085; }
+    .vk-dark .tab.active { background:rgba(255,255,255,.88); border-color:rgba(255,255,255,.92); color:#101828; }
+
     .schedule-shell {
       padding: 16px 14px 0;
       background: var(--bg);
@@ -821,6 +849,20 @@
     .about-title { font-size:16px; font-weight:800; }
     .about-author { font-size:11px; color:var(--muted); margin-top:8px; }
     .about-link { display:inline-block; margin-top:3px; color:var(--accent); font-size:11px; text-decoration:none; }
+    .theme-setting-row { align-items:center; }
+    .setting-copy { min-width:0; display:flex; flex-direction:column; gap:2px; }
+    .theme-switch { display:block; cursor:pointer; flex:0 0 42px; }
+    .theme-switch input { position:absolute; opacity:0; pointer-events:none; }
+    .theme-switch .fake-switch { display:block; }
+    .system-theme-action { display:flex; justify-content:flex-end; margin-top:7px; }
+    .system-theme-btn { border:0; background:transparent; color:var(--accent); font-size:11px; font-weight:700; padding:3px 0; cursor:pointer; opacity:.92; }
+    .system-theme-btn:active { opacity:.6; }
+    .density-setting-row { align-items:flex-start; flex-direction:column; gap:8px; }
+    .density-segmented { width:100%; display:grid; grid-template-columns:1fr 1fr 1fr; gap:3px; padding:3px; border:1px solid var(--border); border-radius:13px; background:var(--bg2); }
+    .density-segmented button { border:0; border-radius:10px; min-height:34px; padding:6px 8px; background:transparent; color:var(--muted); font:inherit; font-size:11px; font-weight:700; cursor:pointer; transition:.18s ease; }
+    .density-segmented button.active { background:var(--card); color:var(--text); box-shadow:0 2px 8px rgba(16,24,40,.10); }
+    .density-segmented button:active { transform:scale(.98); }
+
     /* Density settings */
     html.ui-compact .card { padding:14px; margin:9px 0; border-radius:18px; }
     html.ui-compact .card-subject { font-size:17px; }
@@ -1010,21 +1052,26 @@
 
     <div class="settings-section">
       <div class="settings-section-title">Внешний вид</div>
-      <div class="setting-row">
-        <span>Тема</span>
-        <select id="theme-select">
-          <option value="auto">Системная</option>
-          <option value="light">Светлая</option>
-          <option value="dark">Тёмная</option>
-        </select>
+      <div class="setting-row theme-setting-row">
+        <div class="setting-copy">
+          <span>Тёмная тема</span>
+          <div class="mini-note" id="theme-mode-note">По системе</div>
+        </div>
+        <label class="theme-switch" aria-label="Тёмная тема">
+          <input type="checkbox" id="theme-toggle">
+          <span class="fake-switch"></span>
+        </label>
       </div>
-      <div class="setting-row">
-        <span>Размер интерфейса</span>
-        <select id="density-select">
-          <option value="standard">Стандартный</option>
-          <option value="compact">Компактный</option>
-          <option value="large">Крупный</option>
-        </select>
+      <div class="system-theme-action" id="system-theme-action">
+        <button type="button" class="system-theme-btn" id="theme-auto-btn">Следовать системе</button>
+      </div>
+      <div class="setting-row density-setting-row">
+        <div class="setting-copy"><span>Размер интерфейса</span></div>
+        <div class="density-segmented" id="density-segmented" role="group" aria-label="Размер интерфейса">
+          <button type="button" data-density="compact">Компакт</button>
+          <button type="button" data-density="standard">Стандарт</button>
+          <button type="button" data-density="large">Крупный</button>
+        </div>
       </div>
     </div>
 
@@ -1077,15 +1124,37 @@
     catch (e) { return { theme: 'auto', autoRefresh: true, density: 'standard', showTeachers: true, showRooms: true, showTypes: true, showBreaks: true }; }
   }
   function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {} }
+  function getSystemTheme() {
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
   function applyTheme() {
-    document.documentElement.classList.remove('vk-dark', 'vk-light');
-    if (settings.theme === 'dark') document.documentElement.classList.add('vk-dark');
-    if (settings.theme === 'light') document.documentElement.classList.add('vk-light');
-    document.documentElement.classList.remove('ui-compact', 'ui-large');
-    if (settings.density === 'compact') document.documentElement.classList.add('ui-compact');
-    if (settings.density === 'large') document.documentElement.classList.add('ui-large');
+    const root = document.documentElement;
+    root.classList.remove('vk-dark', 'vk-light', 'ui-compact', 'ui-large');
+    const effectiveTheme = settings.theme === 'auto' ? getSystemTheme() : settings.theme;
+    root.classList.add(effectiveTheme === 'dark' ? 'vk-dark' : 'vk-light');
+    if (settings.density === 'compact') root.classList.add('ui-compact');
+    if (settings.density === 'large') root.classList.add('ui-large');
+    syncAppearanceControls();
+  }
+  function syncAppearanceControls() {
+    const toggle = document.getElementById('theme-toggle');
+    const note = document.getElementById('theme-mode-note');
+    const autoBtn = document.getElementById('theme-auto-btn');
+    const effective = settings.theme === 'auto' ? getSystemTheme() : settings.theme;
+    if (toggle) toggle.checked = effective === 'dark';
+    if (note) note.textContent = settings.theme === 'auto' ? 'По системе' : 'Вручную';
+    if (autoBtn) autoBtn.style.display = settings.theme === 'auto' ? 'none' : 'block';
+    document.querySelectorAll('.density-segmented button').forEach(function(btn){
+      btn.classList.toggle('active', (btn.dataset.density || 'standard') === (settings.density || 'standard'));
+    });
   }
   applyTheme();
+  if (window.matchMedia) {
+    const systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+    const onSystemThemeChange = function(){ if (settings.theme === 'auto') applyTheme(); };
+    if (systemThemeMedia.addEventListener) systemThemeMedia.addEventListener('change', onSystemThemeChange);
+    else if (systemThemeMedia.addListener) systemThemeMedia.addListener(onSystemThemeChange);
+  }
   function setActiveGroup(id, name) {
     activeGroupId = Number(id) || DEFAULT_GROUP_ID;
     GROUP_NAME = String(name || '').trim() || (activeGroupId === DEFAULT_GROUP_ID ? DEFAULT_GROUP_NAME : 'Группа ' + activeGroupId);
@@ -1996,8 +2065,7 @@
     const modal=document.getElementById('group-modal'); if(!modal) return;
     document.getElementById('group-id-input').value=activeGroupId;
     document.getElementById('group-name-input').value='';
-    const theme=document.getElementById('theme-select'); if(theme) theme.value=settings.theme;
-    const density=document.getElementById('density-select'); if(density) density.value=settings.density || 'standard';
+    syncAppearanceControls();
     const st=document.getElementById('show-teachers-setting'); if(st) st.checked=settings.showTeachers !== false;
     const sr=document.getElementById('show-rooms-setting'); if(sr) sr.checked=settings.showRooms !== false;
     const sty=document.getElementById('show-types-setting'); if(sty) sty.checked=settings.showTypes !== false;
@@ -2118,8 +2186,16 @@
     if(groupSearch) groupSearch.addEventListener('input',function(){
       renderGroupDirectoryResults(groupSearch.value);
     });
-    const theme=document.getElementById('theme-select'); if(theme) theme.addEventListener('change',function(){ settings.theme=theme.value; saveSettings(); applyTheme(); });
-    const density=document.getElementById('density-select'); if(density) density.addEventListener('change',function(){ settings.density=density.value; saveSettings(); applyTheme(); });
+    const themeToggle=document.getElementById('theme-toggle'); if(themeToggle) themeToggle.addEventListener('change',function(){
+      settings.theme = themeToggle.checked ? 'dark' : 'light';
+      saveSettings(); applyTheme();
+    });
+    const autoThemeBtn=document.getElementById('theme-auto-btn'); if(autoThemeBtn) autoThemeBtn.addEventListener('click',function(){
+      settings.theme='auto'; saveSettings(); applyTheme();
+    });
+    document.querySelectorAll('.density-segmented button').forEach(function(btn){
+      btn.addEventListener('click',function(){ settings.density=btn.dataset.density || 'standard'; saveSettings(); applyTheme(); });
+    });
     const st=document.getElementById('show-teachers-setting'); if(st) st.addEventListener('change',function(){ settings.showTeachers=st.checked; saveSettings(); render(); });
     const sr=document.getElementById('show-rooms-setting'); if(sr) sr.addEventListener('change',function(){ settings.showRooms=sr.checked; saveSettings(); render(); });
     const sty=document.getElementById('show-types-setting'); if(sty) sty.addEventListener('change',function(){ settings.showTypes=sty.checked; saveSettings(); render(); });
