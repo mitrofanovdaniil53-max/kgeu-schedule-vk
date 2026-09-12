@@ -1131,6 +1131,11 @@
   // Group may be passed as ?groupId=... .
   // If the app is opened directly without a groupId, keep M-1-25 as a safe fallback.
   const params = new URLSearchParams(window.location.search);
+  // VK open_app передаёт параметры сохранённой группы через hash.
+  // Поддерживаем и обычный query string, чтобы не ломать существующие ссылки.
+  const hashParams = new URLSearchParams(
+    String(window.location.hash || '').replace(/^#/, '')
+  );
   const API = 'https://kabinet.kgeu.ru/api/Rasp';
   const GROUP_DIRECTORY_API = 'https://kabinet.kgeu.ru/api/raspGrouplist?year=2026-2027';
   const GROUP_DIRECTORY_CACHE_KEY = 'kgeu_vk_group_directory_2026_2027';
@@ -1144,9 +1149,9 @@
   const SETTINGS_KEY = 'kgeu_vk_settings_v1';
   const CACHE_TTL = 30 * 60 * 1000;
 
-  let activeGroupId = Number(params.get('groupId')) || 0;
-  let GROUP_NAME = params.get('groupName') || '';
-  let INSTITUTE_NAME = params.get('institute') || '';
+  let activeGroupId = Number(params.get('groupId')) || Number(hashParams.get('groupId')) || 0;
+  let GROUP_NAME = params.get('groupName') || hashParams.get('groupName') || '';
+  let INSTITUTE_NAME = params.get('institute') || hashParams.get('institute') || '';
 
   // Restore the last explicitly selected group when the Mini App is reopened.
   // A group passed in the URL has priority (e.g. shared/deep-linked schedule).
