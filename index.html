@@ -6,7 +6,64 @@
   <meta name="color-scheme" content="light dark">
   <title>Моё расписание</title>
   <!-- VK design update v5: Liquid Glass-inspired UI + SVG settings icon -->
-  <script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
+  
+<script id="kgeu-vk-personal-notes-v1">
+const KGEU_PERSONAL_DATA_KEY = "kgeu_vk_personal_data_v1";
+
+function kgeuDefaultPersonalData() {
+  return { version: 1, notes: {}, updatedAt: Date.now() };
+}
+
+function kgeuLoadPersonalData() {
+  try {
+    const raw = localStorage.getItem(KGEU_PERSONAL_DATA_KEY);
+    if (!raw) return kgeuDefaultPersonalData();
+    const data = JSON.parse(raw);
+    return {
+      ...kgeuDefaultPersonalData(),
+      ...data,
+      version: Number(data.version) || 1,
+      notes: data.notes && typeof data.notes === "object" ? data.notes : {}
+    };
+  } catch {
+    return kgeuDefaultPersonalData();
+  }
+}
+
+function kgeuSavePersonalData(data) {
+  try {
+    localStorage.setItem(KGEU_PERSONAL_DATA_KEY, JSON.stringify({
+      ...data,
+      version: 1,
+      updatedAt: Date.now()
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let kgeuPersonalData = kgeuLoadPersonalData();
+
+function kgeuSubjectKey(subject) {
+  return String(subject || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function kgeuGetNote(subject) {
+  return String(kgeuPersonalData.notes[kgeuSubjectKey(subject)] || "");
+}
+
+function kgeuSetNote(subject, value) {
+  const key = kgeuSubjectKey(subject);
+  if (!key) return;
+  const note = String(value || "").trim();
+  if (note) kgeuPersonalData.notes[key] = note;
+  else delete kgeuPersonalData.notes[key];
+  kgeuSavePersonalData(kgeuPersonalData);
+}
+</script>
+
+<script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
   <style>
     :root {
       --bg: #f5f7fa;
@@ -977,6 +1034,91 @@
 .teacher-directory .teacher-university-btn:disabled{opacity:.65;cursor:wait}
 .teacher-directory .teacher-index-progress{font-size:12px;color:var(--muted,#667085);margin:6px 0 10px;line-height:1.4}
 </style>
+
+
+<style id="kgeu-vk-notes-ui-v2">
+.kgeu-note-inline{
+  position:absolute;
+  top:10px;
+  right:10px;
+  z-index:4;
+}
+.kgeu-note-icon{
+  width:30px;
+  height:30px;
+  border:0;
+  border-radius:9px;
+  padding:0;
+  background:transparent;
+  color:#98A2B3;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:15px;
+  line-height:1;
+  cursor:pointer;
+  transition:background .15s ease,color .15s ease,transform .15s ease;
+}
+.kgeu-note-icon:hover{
+  background:rgba(21,87,214,.08);
+  color:#1557D6;
+}
+.kgeu-note-icon:active{transform:scale(.94)}
+.kgeu-note-icon.has-note{
+  color:#1557D6;
+  background:rgba(21,87,214,.09);
+}
+.kgeu-note-expand{
+  display:none;
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid rgba(152,162,179,.18);
+}
+.kgeu-note-expand.open{display:block}
+.kgeu-note-expand textarea{
+  display:block;
+  width:100%;
+  min-height:72px;
+  max-height:180px;
+  box-sizing:border-box;
+  resize:vertical;
+  border:1px solid rgba(152,162,179,.28);
+  border-radius:11px;
+  padding:9px 10px;
+  font:inherit;
+  font-size:13px;
+  line-height:1.4;
+  outline:none;
+  background:rgba(248,250,252,.9);
+  color:inherit;
+}
+.kgeu-note-expand textarea:focus{border-color:#1557D6}
+.kgeu-note-expand-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:7px;
+  margin-top:7px;
+}
+.kgeu-note-expand-actions button{
+  border:0;
+  border-radius:9px;
+  padding:7px 11px;
+  font:inherit;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+}
+.kgeu-note-save-v2{background:#1557D6;color:#fff}
+.kgeu-note-close-v2{background:#EEF2F6;color:#344054}
+body.dark .kgeu-note-expand textarea{
+  background:rgba(17,24,39,.75);
+  border-color:rgba(152,162,179,.25);
+}
+body.dark .kgeu-note-close-v2{background:#263244;color:#D0D5DD}
+body.dark .kgeu-note-icon{color:#98A2B3}
+body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10)}
+</style>
+
 </head>
 <body>
 <div class="wrap">
@@ -2596,6 +2738,158 @@
 })();
 </script>
 
+
+
+
+<script id="kgeu-vk-notes-runtime-v2">
+function kgeuFindLessonCards() {
+  const selectors = [
+    '[data-lesson-card]',
+    '.lesson-card',
+    '.schedule-card',
+    '.lesson'
+  ];
+  const found = [];
+  selectors.forEach(sel => {
+    document.querySelectorAll(sel).forEach(el => {
+      if (!found.includes(el)) found.push(el);
+    });
+  });
+  return found;
+}
+
+function kgeuFindLessonSubject(card) {
+  const explicit =
+    card.getAttribute("data-subject") ||
+    card.getAttribute("data-lesson-subject") ||
+    "";
+
+  if (explicit.trim()) return explicit.trim();
+
+  const selectors = [
+    ".lesson-subject",
+    ".subject",
+    ".lesson-title",
+    ".subject-name",
+    "[data-subject]",
+    "h3",
+    "h4"
+  ];
+
+  for (const selector of selectors) {
+    for (const el of card.querySelectorAll(selector)) {
+      const value = String(el.textContent || "").trim();
+      if (value && value.length > 1 && value.length < 180) return value;
+    }
+  }
+
+  return "";
+}
+
+function kgeuPrepareCard(card) {
+  if (!card || card.querySelector(".kgeu-note-inline")) return;
+
+  const subject = kgeuFindLessonSubject(card);
+  if (!subject) return;
+
+  // Keep the action visually inside the card without disturbing existing layout.
+  const computed = getComputedStyle(card);
+  if (computed.position === "static") card.style.position = "relative";
+
+  const wrap = document.createElement("div");
+  wrap.className = "kgeu-note-inline";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "kgeu-note-icon";
+  button.title = "Заметка к предмету";
+  button.setAttribute("aria-label", "Заметка к предмету");
+  button.textContent = "📝";
+
+  const panel = document.createElement("div");
+  panel.className = "kgeu-note-expand";
+
+  const textarea = document.createElement("textarea");
+  textarea.maxLength = 4000;
+  textarea.placeholder = "Экзамен, зачёт, автомат, требования...";
+  textarea.value = kgeuGetNote(subject);
+
+  const actions = document.createElement("div");
+  actions.className = "kgeu-note-expand-actions";
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "kgeu-note-close-v2";
+  close.textContent = "Свернуть";
+
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "kgeu-note-save-v2";
+  save.textContent = "Сохранить";
+
+  actions.append(close, save);
+  panel.append(textarea, actions);
+
+  // Put the expandable content into the card itself.
+  const contentTarget =
+    card.querySelector(".lesson-content, .card-content, .lesson-info, .schedule-card-content") ||
+    card;
+
+  contentTarget.appendChild(panel);
+  wrap.appendChild(button);
+  card.appendChild(wrap);
+
+  const refreshState = () => {
+    const has = Boolean(kgeuGetNote(subject).trim());
+    button.classList.toggle("has-note", has);
+    button.title = has ? "Изменить заметку" : "Добавить заметку";
+  };
+  refreshState();
+
+  button.addEventListener("click", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const open = panel.classList.toggle("open");
+    if (open) {
+      textarea.value = kgeuGetNote(subject);
+      requestAnimationFrame(() => textarea.focus());
+    }
+  });
+
+  save.addEventListener("click", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    kgeuSetNote(subject, textarea.value);
+    refreshState();
+    panel.classList.remove("open");
+  });
+
+  close.addEventListener("click", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    panel.classList.remove("open");
+  });
+
+  panel.addEventListener("click", e => e.stopPropagation());
+}
+
+function kgeuDecorateLessonNotes() {
+  kgeuFindLessonCards().forEach(kgeuPrepareCard);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  kgeuDecorateLessonNotes();
+
+  const observer = new MutationObserver(() => {
+    kgeuDecorateLessonNotes();
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+});
+</script>
 
 </body>
 </html>
