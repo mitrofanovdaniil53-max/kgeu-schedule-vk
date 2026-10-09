@@ -3107,6 +3107,37 @@ document.addEventListener("DOMContentLoaded", () => {
   function writeCachedService(data) {
     try { localStorage.setItem(SERVICE_CACHE_KEY, JSON.stringify(data || DEFAULT_SERVICE)); } catch (e) {}
   }
+  function hasMeaningfulServiceData(data) {
+    if (!data || typeof data !== 'object') return false;
+    const hostel = data.hostel && typeof data.hostel === 'object' ? data.hostel : {};
+    const reminders = data.reminders && typeof data.reminders === 'object' ? data.reminders : {};
+    return ['tasks', 'deadlines', 'events'].some(key => Array.isArray(data[key]) && data[key].length > 0)
+      || ['work', 'social'].some(key => Array.isArray(hostel[key]) && hostel[key].length > 0)
+      || (hostel.totalGoal != null && Number(hostel.totalGoal) !== 250)
+      || (hostel.adminGoal != null && Number(hostel.adminGoal) !== 100)
+      || (hostel.socialGoal != null && Number(hostel.socialGoal) !== 150)
+      || reminders.enabled === true
+      || (reminders.taskDays != null && Number(reminders.taskDays) !== 1)
+      || (reminders.deadlineDays != null && Number(reminders.deadlineDays) !== 1)
+      || (reminders.eventDays != null && Number(reminders.eventDays) !== 1);
+  }
+  function stableServiceValue(value) {
+    if (Array.isArray(value)) return value.map(stableServiceValue);
+    if (!value || typeof value !== 'object') return value;
+    const ignored = new Set(['updatedAt', 'version', 'schemaVersion']);
+    const result = {};
+    Object.keys(value).filter(key => !ignored.has(key)).sort().forEach(key => {
+      result[key] = stableServiceValue(value[key]);
+    });
+    return result;
+  }
+  function sameServiceContent(left, right) {
+    try {
+      return JSON.stringify(stableServiceValue(left)) === JSON.stringify(stableServiceValue(right));
+    } catch (e) {
+      return false;
+    }
+  }
   function sharedServiceEscape(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
@@ -3233,6 +3264,22 @@ document.addEventListener("DOMContentLoaded", () => {
       if (remote && remote.found) {
         const remoteRevision = Number(remote.revision || 0);
         const cachedService = readCachedService();
+        // First link is an identity merge, not permission to discard pre-existing VK-local Student Service data.
+        // If both sides contain different meaningful service records, pause automatic sync and let the user choose
+        // one of the explicit, backup-protected conflict actions in Settings.
+        if (!meta.initialized && cachedService && hasMeaningfulServiceData(cachedService)
+            && !sameServiceContent(cachedService, remote.serviceData || DEFAULT_SERVICE)) {
+          const backupKey = 'kgeu_vk_local_before_first_link_v1';
+          try {
+            if (!localStorage.getItem(backupKey)) {
+              localStorage.setItem(backupKey, JSON.stringify({ savedAt: Date.now(), serviceData: cachedService }));
+            }
+          } catch (e) {}
+          snapshot.serviceData = cachedService;
+          renderSharedServiceView();
+          setStatus('Перед первой синхронизацией найдены разные данные «Моего сервиса» в VK и Telegram. Ничего не перезаписано: выбери в настройках «Оставить локальную версию VK» или «Заменить локальную версией из облака». Локальная копия сохранена.');
+          return;
+        }
         if (meta.dirtyService && cachedService) {
           if (!meta.lastServerRevision || remoteRevision > Number(meta.lastServerRevision || 0)) {
             snapshot.serviceData = cachedService;
