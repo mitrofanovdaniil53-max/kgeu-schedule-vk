@@ -982,6 +982,14 @@ function kgeuSetNote(subject, value) {
       .logo svg { width:27px; height:27px; }
       .top-actions { gap:3px; }
     }
+    #shared-service-section .shared-service-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0}
+    #shared-service-section .shared-service-stats>div{padding:10px;border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;gap:3px}
+    #shared-service-section .shared-service-stats strong{font-size:18px}
+    #shared-service-section .shared-service-stats span,#shared-service-section .shared-service-list span,#shared-service-section .shared-service-list small{font-size:12px;color:var(--muted)}
+    #shared-service-section .shared-service-details{padding:10px 0;border-top:1px solid var(--border)}
+    #shared-service-section .shared-service-details summary{cursor:pointer;font-weight:650}
+    #shared-service-section .shared-service-list{padding-left:18px;margin:10px 0;display:grid;gap:10px}
+    #shared-service-section .shared-service-list li{display:grid;gap:3px}
 </style>
 
 <script>
@@ -1271,6 +1279,11 @@ body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10
       <div id="shared-sync-feedback" class="mini-note" role="status"></div>
     </div>
 
+    <div class="settings-section" id="shared-service-section">
+      <div class="settings-section-title">Мой сервис из Telegram</div>
+      <div class="mini-note">Общие задачи, дедлайны, события и баллы ЖБС. В первой версии данные здесь доступны для просмотра; редактирование выполняется в Telegram.</div>
+      <div id="shared-service-view" aria-live="polite"></div>
+    </div>
     <div class="settings-section about-section">
       <div class="settings-section-title">О приложении</div>
       <div class="about-app">
@@ -3087,6 +3100,51 @@ document.addEventListener("DOMContentLoaded", () => {
   function writeCachedService(data) {
     try { localStorage.setItem(SERVICE_CACHE_KEY, JSON.stringify(data || DEFAULT_SERVICE)); } catch (e) {}
   }
+  function sharedServiceEscape(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
+    });
+  }
+  function renderSharedServiceView() {
+    const root = document.getElementById('shared-service-view');
+    if (!root) return;
+    const data = readCachedService() || DEFAULT_SERVICE;
+    const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+    const deadlines = Array.isArray(data.deadlines) ? data.deadlines : [];
+    const events = Array.isArray(data.events) ? data.events : [];
+    const hostel = data.hostel && typeof data.hostel === 'object' ? data.hostel : {};
+    const work = Array.isArray(hostel.work) ? hostel.work : [];
+    const social = Array.isArray(hostel.social) ? hostel.social : [];
+    const points = work.reduce((sum, item) => sum + Math.max(0, Number(item.points || 0)), 0)
+      + social.reduce((sum, item) => sum + Math.max(0, Number(item.points || 0)), 0);
+    const goal = Math.max(0, Number(hostel.totalGoal || 250));
+    function list(items, renderItem) {
+      if (!items.length) return '<p class="mini-note">Пока нет записей.</p>';
+      return '<ul class="shared-service-list">' + items.slice(0, 30).map(renderItem).join('') + '</ul>'
+        + (items.length > 30 ? '<p class="mini-note">Показаны первые 30 из ' + items.length + ' записей.</p>' : '');
+    }
+    function recordDate(value) { return sharedServiceEscape(value || 'Без даты'); }
+    root.innerHTML =
+      '<div class="shared-service-stats">' +
+        '<div><strong>' + tasks.filter(x => !x.done).length + '</strong><span>активных задач</span></div>' +
+        '<div><strong>' + deadlines.filter(x => !x.done).length + '</strong><span>дедлайнов</span></div>' +
+        '<div><strong>' + events.length + '</strong><span>событий</span></div>' +
+        '<div><strong>' + points + ' / ' + goal + '</strong><span>баллов ЖБС</span></div>' +
+      '</div>' +
+      '<details class="shared-service-details"><summary>Задачи (' + tasks.length + ')</summary>' +
+        list(tasks, item => '<li><strong>' + sharedServiceEscape(item.title || 'Без названия') + '</strong><span>' + recordDate(item.dueDate) + (item.done ? ' · Выполнена' : ' · Активна') + '</span>' + (item.subject ? '<small>' + sharedServiceEscape(item.subject) + '</small>' : '') + '</li>') +
+      '</details>' +
+      '<details class="shared-service-details"><summary>Дедлайны (' + deadlines.length + ')</summary>' +
+        list(deadlines, item => '<li><strong>' + sharedServiceEscape(item.title || 'Без названия') + '</strong><span>' + recordDate(item.date) + (item.done ? ' · Выполнен' : ' · Не выполнен') + '</span>' + (item.subject ? '<small>' + sharedServiceEscape(item.subject) + '</small>' : '') + '</li>') +
+      '</details>' +
+      '<details class="shared-service-details"><summary>События (' + events.length + ')</summary>' +
+        list(events, item => '<li><strong>' + sharedServiceEscape(item.title || 'Без названия') + '</strong><span>' + recordDate(item.date) + ' · ' + Math.max(0, Number(item.points || 0)) + ' балл(ов)</span></li>') +
+      '</details>' +
+      '<details class="shared-service-details"><summary>ЖБС: работа и мероприятия (' + (work.length + social.length) + ')</summary>' +
+        list(work.concat(social), item => '<li><strong>' + sharedServiceEscape(item.title || 'Запись') + '</strong><span>' + recordDate(item.date) + ' · ' + Math.max(0, Number(item.points || 0)) + ' балл(ов)' + (item.minutes ? ' · ' + Math.max(0, Number(item.minutes)) + ' мин.' : '') + '</span></li>') +
+      '</details>';
+  }
+
   function payloadForSync(personal, profile) {
     const meta = readMeta();
     return {
@@ -3134,6 +3192,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (remote && remote.found) {
         snapshot.serviceData = remote.serviceData || DEFAULT_SERVICE;
         writeCachedService(snapshot.serviceData);
+        renderSharedServiceView();
         const merged = mergeNotes(remote.personalData, local, meta.dirtyNotes || []);
         personal = merged.personalData;
         if (meta.dirtyProfile) profile = localProfile;
@@ -3215,6 +3274,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (input) input.addEventListener('input', function () { input.value = input.value.toUpperCase().replace(/[^23456789ABCDEFGHJKLMNPQRSTUVWXYZ]/g, '').slice(0, 8); });
   }
   bindControls();
+  renderSharedServiceView();
   syncNow('startup');
   setInterval(function () {
     if (document.visibilityState === 'visible' && navigator.onLine !== false) syncNow('periodic');
