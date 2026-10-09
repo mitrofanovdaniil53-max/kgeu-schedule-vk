@@ -3211,10 +3211,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if (merged.conflicts) setStatus('Синхронизация выполнена. Есть ' + merged.conflicts + ' заметок с разными версиями — локальная копия сохранена.');
       } else {
+        // The link code is created from Telegram, so Telegram is the authoritative
+        // bootstrap source. Do not publish an empty VK snapshot over unsynced
+        // Telegram data; keep VK-local notes/profile dirty until cloud data appears.
         snapshot.serviceData = readCachedService() || DEFAULT_SERVICE;
         personal = local;
         profile = localProfile;
-        shouldPush = true;
+        setStatus('В облаке пока нет данных. Открой Telegram и дождись первой синхронизации; локальные заметки и настройки VK сохранены.');
+        renderSharedServiceView();
+        return;
       }
 
       if (shouldPush) {
