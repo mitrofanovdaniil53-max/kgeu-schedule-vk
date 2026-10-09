@@ -60,6 +60,9 @@ function kgeuSetNote(subject, value) {
   if (note) kgeuPersonalData.notes[key] = note;
   else delete kgeuPersonalData.notes[key];
   kgeuSavePersonalData(kgeuPersonalData);
+  try {
+    if (typeof window.kgeuSharedSyncMarkDirty === "function") window.kgeuSharedSyncMarkDirty("note", key);
+  } catch {}
 }
 </script>
 
@@ -1256,6 +1259,18 @@ body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10
       <label class="switch-row"><span>Автообновление</span><input type="checkbox" id="auto-refresh-setting" checked><span class="fake-switch"></span></label>
     </div>
 
+
+    <div class="settings-section" id="shared-sync-section">
+      <div class="settings-section-title">Общий аккаунт Telegram ↔ VK</div>
+      <div class="mini-note">Привяжи Telegram, чтобы заметки и поддерживаемые личные данные были доступны на обеих платформах и устройствах.</div>
+      <div id="shared-sync-status" class="mini-note" role="status">Проверяю подключение…</div>
+      <label class="field-label" for="shared-link-code">Код привязки из Telegram</label>
+      <input class="field" id="shared-link-code" maxlength="8" autocomplete="one-time-code" autocapitalize="characters" placeholder="Например, 8F3KQ2WM">
+      <button type="button" class="primary-btn" id="shared-link-submit">Привязать аккаунт</button>
+      <button type="button" class="system-theme-btn" id="shared-sync-now">Синхронизировать сейчас</button>
+      <div id="shared-sync-feedback" class="mini-note" role="status"></div>
+    </div>
+
     <div class="settings-section about-section">
       <div class="settings-section-title">О приложении</div>
       <div class="about-app">
@@ -1314,7 +1329,14 @@ body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10
     try { return Object.assign({ theme: 'auto', autoRefresh: true, density: 'standard', showTeachers: true, showRooms: true, showTypes: true, showBreaks: true }, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); }
     catch (e) { return { theme: 'auto', autoRefresh: true, density: 'standard', showTeachers: true, showRooms: true, showTypes: true, showBreaks: true }; }
   }
-  function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {} }
+  function saveSettings() {
+    try {
+      const next = JSON.stringify(settings);
+      const previous = localStorage.getItem(SETTINGS_KEY);
+      localStorage.setItem(SETTINGS_KEY, next);
+      if (previous !== next && typeof window.kgeuSharedSyncMarkDirty === 'function') window.kgeuSharedSyncMarkDirty('profile');
+    } catch (e) {}
+  }
   function getSystemTheme() {
     return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
@@ -1355,11 +1377,10 @@ body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10
 
   function saveActiveGroup() {
     try {
-      localStorage.setItem(ACTIVE_GROUP_KEY, JSON.stringify({
-        id: activeGroupId,
-        name: GROUP_NAME,
-        institute: INSTITUTE_NAME || ''
-      }));
+      const next = JSON.stringify({ id: activeGroupId, name: GROUP_NAME, institute: INSTITUTE_NAME || '' });
+      const previous = localStorage.getItem(ACTIVE_GROUP_KEY);
+      localStorage.setItem(ACTIVE_GROUP_KEY, next);
+      if (previous && previous !== next && typeof window.kgeuSharedSyncMarkDirty === 'function') window.kgeuSharedSyncMarkDirty('profile');
     } catch (e) {}
   }
   if (!activeGroupId) setActiveGroup(DEFAULT_GROUP_ID, DEFAULT_GROUP_NAME);
@@ -2889,6 +2910,296 @@ document.addEventListener("DOMContentLoaded", () => {
     subtree: true
   });
 });
+</script>
+
+<script id="kgeu-vk-shared-sync-v1">
+(function () {
+  'use strict';
+  const API = 'https://kgeu-telegram-miniapp.2vkv544dmd.workers.dev';
+  const META_KEY = 'kgeu_vk_shared_sync_meta_v1';
+  const SERVICE_CACHE_KEY = 'kgeu_vk_shared_service_cache_v1';
+  const PROFILE_KEY = 'kgeu_vk_active_group_v1';
+  const SETTINGS_KEY = 'kgeu_vk_settings_v1';
+  const BACKUP_KEY = 'kgeu_vk_notes_conflict_backup_v1';
+  const DEFAULT_SERVICE = { schemaVersion: 4, version: 4, tasks: [], deadlines: [], events: [], hostel: { work: [], social: [] } };
+  let busy = false;
+  let timer = null;
+  let snapshot = { serviceData: DEFAULT_SERVICE, personalData: { version: 1, notes: {} }, profileData: {} };
+
+  function readMeta() {
+    try {
+      return Object.assign({ deviceId: '', lastServerRevision: 0, lastSyncAt: 0, initialized: false, dirty: false, dirtyNotes: [], dirtyProfile: false }, JSON.parse(localStorage.getItem(META_KEY) || '{}'));
+    } catch (e) {
+      return { deviceId: '', lastServerRevision: 0, lastSyncAt: 0, initialized: false, dirty: false, dirtyNotes: [], dirtyProfile: false };
+    }
+  }
+  function writeMeta(meta) { try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {} }
+  function getDeviceId() {
+    const meta = readMeta();
+    if (meta.deviceId) return meta.deviceId;
+    meta.deviceId = 'vk-' + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2));
+    writeMeta(meta);
+    return meta.deviceId;
+  }
+  function launchParams() {
+    return String(window.location.search || '').replace(/^\?/, '');
+  }
+  function setStatus(message, error) {
+    const node = document.getElementById('shared-sync-status');
+    if (node) node.textContent = message;
+    const feedback = document.getElementById('shared-sync-feedback');
+    if (feedback && error) feedback.textContent = error;
+  }
+  async function request(path, options) {
+    const raw = launchParams();
+    if (!raw || !/(^|&)vk_user_id=/.test(raw) || !/(^|&)sign=/.test(raw)) throw new Error('Открой мини-приложение внутри VK, чтобы подтвердить аккаунт.');
+    const opts = Object.assign({}, options || {});
+    const headers = Object.assign({ 'Content-Type': 'application/json', 'X-VK-Launch-Params': raw }, opts.headers || {});
+    opts.headers = headers;
+    const response = await fetch(API + path, opts);
+    const bodyText = await response.text();
+    let data = null;
+    try { data = bodyText ? JSON.parse(bodyText) : {}; } catch (e) { data = { error: bodyText }; }
+    if (!response.ok) {
+      const messages = {
+        vk_auth_unavailable: 'На сервере ещё не настроена проверка VK. Синхронизация не включена.',
+        vk_auth_invalid: 'VK не смог подтвердить запуск приложения.',
+        target_account_has_data: 'В этом VK-аккаунте уже есть облачные данные. Для безопасности автоматическое объединение остановлено.',
+        link_code_expired_or_invalid: 'Код неверный или срок его действия истёк. Создай новый код в Telegram.',
+        link_code_invalid: 'Проверь код: нужно 8 символов.',
+        link_requires_other_platform: 'Код должен быть создан в другой платформе — Telegram или VK.',
+        provider_already_linked: 'К этой учётной записи уже привязан другой аккаунт этой платформы.'
+      };
+      throw new Error(messages[data && data.error] || (data && data.error) || ('HTTP ' + response.status));
+    }
+    return data;
+  }
+  function readProfile() {
+    let group = null, settings = {};
+    try { group = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null'); } catch (e) {}
+    try { settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch (e) {}
+    return {
+      activeGroup: group && Number(group.id) ? { id: Number(group.id), name: String(group.name || ''), institute: String(group.institute || '') } : null,
+      settings: {
+        theme: settings.theme || 'auto',
+        autoRefresh: settings.autoRefresh !== false,
+        density: settings.density || 'standard',
+        showTeachers: settings.showTeachers !== false,
+        showRooms: settings.showRooms !== false,
+        showTypes: settings.showTypes !== false,
+        showBreaks: settings.showBreaks !== false
+      }
+    };
+  }
+  function applyProfile(profile) {
+    if (!profile || typeof profile !== 'object') return false;
+    let changed = false;
+    if (profile.activeGroup && Number(profile.activeGroup.id)) {
+      const nextGroup = {
+        id: Number(profile.activeGroup.id),
+        name: String(profile.activeGroup.name || ''),
+        institute: String(profile.activeGroup.institute || '')
+      };
+      const currentGroup = localStorage.getItem(PROFILE_KEY);
+      const nextGroupText = JSON.stringify(nextGroup);
+      if (currentGroup !== nextGroupText) { localStorage.setItem(PROFILE_KEY, nextGroupText); changed = true; }
+    }
+    if (profile.settings && typeof profile.settings === 'object') {
+      let current = {};
+      try { current = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch (e) {}
+      const next = Object.assign({}, current, profile.settings);
+      const nextText = JSON.stringify(next);
+      if (JSON.stringify(current) !== nextText) { localStorage.setItem(SETTINGS_KEY, nextText); changed = true; }
+    }
+    return changed;
+  }
+  function localPersonal() {
+    try { return typeof kgeuPersonalData !== 'undefined' && kgeuPersonalData ? kgeuPersonalData : { version: 1, notes: {} }; }
+    catch (e) { return { version: 1, notes: {} }; }
+  }
+  function mergeNotes(cloudPersonal, localPersonal, dirtyKeys) {
+    const cloud = cloudPersonal && typeof cloudPersonal === 'object' ? cloudPersonal : { version: 1, notes: {} };
+    const local = localPersonal && typeof localPersonal === 'object' ? localPersonal : { version: 1, notes: {} };
+    const cloudNotes = cloud.notes && typeof cloud.notes === 'object' ? cloud.notes : {};
+    const localNotes = local.notes && typeof local.notes === 'object' ? local.notes : {};
+    const merged = Object.assign({}, cloudNotes);
+    const conflicts = {};
+    let changed = false;
+    Object.keys(localNotes).forEach(function (key) {
+      const localValue = String(localNotes[key] || '');
+      if (!Object.prototype.hasOwnProperty.call(cloudNotes, key)) {
+        merged[key] = localValue;
+        changed = true;
+      } else if (String(cloudNotes[key] || '') !== localValue) {
+        if (dirtyKeys.indexOf(key) >= 0) { merged[key] = localValue; changed = true; }
+        else conflicts[key] = localValue;
+      }
+    });
+    if (Object.keys(conflicts).length) {
+      try { localStorage.setItem(BACKUP_KEY, JSON.stringify({ savedAt: Date.now(), notes: conflicts })); } catch (e) {}
+    }
+    return {
+      personalData: { version: 1, notes: merged, updatedAt: Math.max(Number(cloud.updatedAt || 0), Number(local.updatedAt || 0), Date.now()) },
+      addedLocalNotes: changed,
+      conflicts: Object.keys(conflicts).length
+    };
+  }
+  function applyPersonal(personal) {
+    const next = { version: 1, notes: personal && personal.notes && typeof personal.notes === 'object' ? personal.notes : {}, updatedAt: Number(personal && personal.updatedAt || Date.now()) };
+    try {
+      kgeuPersonalData = next;
+      localStorage.setItem('kgeu_vk_personal_data_v1', JSON.stringify(next));
+    } catch (e) {}
+    try { if (typeof kgeuDecorateLessonNotes === 'function') kgeuDecorateLessonNotes(); } catch (e) {}
+  }
+  function readCachedService() {
+    try {
+      const cached = JSON.parse(localStorage.getItem(SERVICE_CACHE_KEY) || 'null');
+      return cached && typeof cached === 'object' ? cached : null;
+    } catch (e) { return null; }
+  }
+  function writeCachedService(data) {
+    try { localStorage.setItem(SERVICE_CACHE_KEY, JSON.stringify(data || DEFAULT_SERVICE)); } catch (e) {}
+  }
+  function payloadForSync(personal, profile) {
+    const meta = readMeta();
+    return {
+      format: 'kgeu-student-service-sync',
+      formatVersion: 1,
+      schemaVersion: 4,
+      deviceId: getDeviceId(),
+      exportedAt: new Date().toISOString(),
+      serviceData: snapshot.serviceData || DEFAULT_SERVICE,
+      personalData: personal || localPersonal(),
+      profileData: profile || readProfile()
+    };
+  }
+  function scheduleSync() {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function () { syncNow('local-change').catch(function (e) { setStatus('Ожидает синхронизации', e.message); }); }, 1200);
+  }
+  window.kgeuSharedSyncMarkDirty = function (kind, key) {
+    const meta = readMeta();
+    meta.dirty = true;
+    if (kind === 'profile') meta.dirtyProfile = true;
+    if (kind === 'note' && key && meta.dirtyNotes.indexOf(key) < 0) meta.dirtyNotes.push(key);
+    writeMeta(meta);
+    scheduleSync();
+  };
+  async function syncNow(reason) {
+    if (busy || navigator.onLine === false || document.visibilityState !== 'visible') return;
+    busy = true;
+    try {
+      const me = await request('/api/account/me', { method: 'GET' });
+      const linked = Array.isArray(me.linkedProviders) && me.linkedProviders.indexOf('telegram') >= 0 && me.linkedProviders.indexOf('vk') >= 0;
+      if (!linked) {
+        setStatus('VK пока не связан с Telegram. Создай код в Telegram и введи его здесь.');
+        return;
+      }
+
+      const meta = readMeta();
+      const remote = await request('/api/sync', { method: 'GET' });
+      const local = localPersonal();
+      const localProfile = readProfile();
+      let shouldPush = !!meta.dirty;
+      let personal = local;
+      let profile = localProfile;
+
+      if (remote && remote.found) {
+        snapshot.serviceData = remote.serviceData || DEFAULT_SERVICE;
+        writeCachedService(snapshot.serviceData);
+        const merged = mergeNotes(remote.personalData, local, meta.dirtyNotes || []);
+        personal = merged.personalData;
+        if (meta.dirtyProfile) profile = localProfile;
+        else profile = remote.profileData || localProfile;
+        if (merged.addedLocalNotes || merged.conflicts) shouldPush = true;
+        if (!meta.initialized || Number(remote.revision || 0) > Number(meta.lastServerRevision || 0)) {
+          const profileChanged = !meta.dirtyProfile && applyProfile(profile);
+          applyPersonal(personal);
+          if (profileChanged) {
+            meta.lastServerRevision = Number(remote.revision || 0);
+            meta.lastSyncAt = Date.now();
+            meta.initialized = true;
+            writeMeta(meta);
+            setStatus('Получены общие данные. Обновляю выбранную группу и настройки…');
+            if (!sessionStorage.getItem('kgeu_vk_profile_reloaded_v1')) {
+              sessionStorage.setItem('kgeu_vk_profile_reloaded_v1', '1');
+              window.location.reload();
+              return;
+            }
+          }
+        }
+        if (merged.conflicts) setStatus('Синхронизация выполнена. Есть ' + merged.conflicts + ' заметок с разными версиями — локальная копия сохранена.');
+      } else {
+        snapshot.serviceData = readCachedService() || DEFAULT_SERVICE;
+        personal = local;
+        profile = localProfile;
+        shouldPush = true;
+      }
+
+      if (shouldPush) {
+        const result = await request('/api/sync', { method: 'POST', body: JSON.stringify(payloadForSync(personal, profile)) });
+        meta.lastServerRevision = Number(result.revision || meta.lastServerRevision || 0);
+        meta.lastSyncAt = Date.now();
+        meta.initialized = true;
+        meta.dirty = false;
+        meta.dirtyNotes = [];
+        meta.dirtyProfile = false;
+        writeMeta(meta);
+        snapshot.personalData = personal;
+        snapshot.profileData = profile;
+        applyPersonal(personal);
+        setStatus('Данные VK и Telegram синхронизированы.');
+      } else {
+        meta.lastServerRevision = Number(remote && remote.revision || meta.lastServerRevision || 0);
+        meta.lastSyncAt = Date.now();
+        meta.initialized = true;
+        writeMeta(meta);
+        snapshot.personalData = personal;
+        snapshot.profileData = profile;
+        setStatus('Данные VK и Telegram синхронизированы.');
+      }
+    } catch (e) {
+      setStatus('Синхронизация пока недоступна', e.message);
+    } finally {
+      busy = false;
+    }
+  }
+  async function linkAccount() {
+    const input = document.getElementById('shared-link-code');
+    const code = String(input && input.value || '').trim().toUpperCase();
+    const button = document.getElementById('shared-link-submit');
+    if (!code) { setStatus('Введи одноразовый код из Telegram.'); return; }
+    if (button) button.disabled = true;
+    try {
+      await request('/api/account/link', { method: 'POST', body: JSON.stringify({ code: code }) });
+      if (input) input.value = '';
+      const meta = readMeta();
+      meta.dirty = true;
+      writeMeta(meta);
+      setStatus('Аккаунты связаны. Переношу данные и заметки…');
+      await syncNow('linked');
+    } catch (e) {
+      setStatus('Не удалось связать аккаунты', e.message);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+  function bindControls() {
+    const link = document.getElementById('shared-link-submit');
+    if (link) link.addEventListener('click', linkAccount);
+    const sync = document.getElementById('shared-sync-now');
+    if (sync) sync.addEventListener('click', function () { syncNow('manual'); });
+    const input = document.getElementById('shared-link-code');
+    if (input) input.addEventListener('input', function () { input.value = input.value.toUpperCase().replace(/[^23456789ABCDEFGHJKLMNPQRSTUVWXYZ]/g, '').slice(0, 8); });
+  }
+  bindControls();
+  syncNow('startup');
+  setInterval(function () {
+    if (document.visibilityState === 'visible' && navigator.onLine !== false) syncNow('periodic');
+  }, 10000);
+  window.addEventListener('online', function () { syncNow('online'); });
+})();
 </script>
 
 </body>
