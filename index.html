@@ -3319,7 +3319,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   function localSharedService() {
     const cached = readCachedService();
-    return cached || snapshot.serviceData || JSON.parse(JSON.stringify(DEFAULT_SERVICE));
+    const data = JSON.parse(JSON.stringify(cached || snapshot.serviceData || DEFAULT_SERVICE));
+    data.tasks = Array.isArray(data.tasks) ? data.tasks : [];
+    data.deadlines = Array.isArray(data.deadlines) ? data.deadlines : [];
+    data.events = Array.isArray(data.events) ? data.events : [];
+    data.hostel = data.hostel && typeof data.hostel === 'object' ? data.hostel : {};
+    data.hostel.work = Array.isArray(data.hostel.work) ? data.hostel.work : [];
+    data.hostel.social = Array.isArray(data.hostel.social) ? data.hostel.social : [];
+    return data;
   }
   function saveSharedServiceData(data) {
     data.version = Number(data.version || 4);
