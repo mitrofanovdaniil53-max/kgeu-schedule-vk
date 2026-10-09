@@ -2429,7 +2429,7 @@ body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10
         render();
       }
       const group = profile.activeGroup;
-      if (group && Number(group.id) && Number(group.id) !== Number(activeGroupId)) {
+      if (group && Number(group.id) && (Number(group.id) !== Number(activeGroupId) || String(group.name || '') !== String(GROUP_NAME || '') || String(group.institute || '') !== String(INSTITUTE_NAME || ''))) {
         await switchGroup(Number(group.id), String(group.name || ''), { name: String(group.name || ''), institute: String(group.institute || '') });
       }
     } finally {
