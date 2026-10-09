@@ -1334,7 +1334,7 @@ body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10
       const next = JSON.stringify(settings);
       const previous = localStorage.getItem(SETTINGS_KEY);
       localStorage.setItem(SETTINGS_KEY, next);
-      if (previous !== next && typeof window.kgeuSharedSyncMarkDirty === 'function') window.kgeuSharedSyncMarkDirty('profile');
+      if (previous !== next && !window.kgeuSharedSyncApplyingProfile && typeof window.kgeuSharedSyncMarkDirty === 'function') window.kgeuSharedSyncMarkDirty('profile');
     } catch (e) {}
   }
   function getSystemTheme() {
@@ -1380,7 +1380,7 @@ body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10
       const next = JSON.stringify({ id: activeGroupId, name: GROUP_NAME, institute: INSTITUTE_NAME || '' });
       const previous = localStorage.getItem(ACTIVE_GROUP_KEY);
       localStorage.setItem(ACTIVE_GROUP_KEY, next);
-      if (previous && previous !== next && typeof window.kgeuSharedSyncMarkDirty === 'function') window.kgeuSharedSyncMarkDirty('profile');
+      if (previous && previous !== next && !window.kgeuSharedSyncApplyingProfile && typeof window.kgeuSharedSyncMarkDirty === 'function') window.kgeuSharedSyncMarkDirty('profile');
     } catch (e) {}
   }
   if (!activeGroupId) setActiveGroup(DEFAULT_GROUP_ID, DEFAULT_GROUP_NAME);
@@ -2416,6 +2416,27 @@ body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10
       throw e;
     }
   }
+  window.kgeuApplySharedProfile = async function(profile) {
+    if (!profile || typeof profile !== 'object') return;
+    const previousFlag = !!window.kgeuSharedSyncApplyingProfile;
+    window.kgeuSharedSyncApplyingProfile = true;
+    try {
+      if (profile.settings && typeof profile.settings === 'object') {
+        settings = Object.assign({}, settings, profile.settings);
+        saveSettings();
+        applyTheme();
+        syncAppearanceControls();
+        render();
+      }
+      const group = profile.activeGroup;
+      if (group && Number(group.id) && Number(group.id) !== Number(activeGroupId)) {
+        await switchGroup(Number(group.id), String(group.name || ''), { name: String(group.name || ''), institute: String(group.institute || '') });
+      }
+    } finally {
+      window.kgeuSharedSyncApplyingProfile = previousFlag;
+    }
+  };
+
   function bindGroupModal() {
     const btn=document.getElementById('btn-group'); if(btn) btn.addEventListener('click',openGroupModal);
     const close=document.getElementById('group-close'); if(close) close.addEventListener('click',closeGroupModal);
@@ -2991,15 +3012,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     };
   }
-  function applyProfile(profile) {
+  async function applyProfile(profile) {
     if (!profile || typeof profile !== 'object') return false;
     let changed = false;
     if (profile.activeGroup && Number(profile.activeGroup.id)) {
-      const nextGroup = {
-        id: Number(profile.activeGroup.id),
-        name: String(profile.activeGroup.name || ''),
-        institute: String(profile.activeGroup.institute || '')
-      };
+      const nextGroup = { id: Number(profile.activeGroup.id), name: String(profile.activeGroup.name || ''), institute: String(profile.activeGroup.institute || '') };
       const currentGroup = localStorage.getItem(PROFILE_KEY);
       const nextGroupText = JSON.stringify(nextGroup);
       if (currentGroup !== nextGroupText) { localStorage.setItem(PROFILE_KEY, nextGroupText); changed = true; }
@@ -3010,6 +3027,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const next = Object.assign({}, current, profile.settings);
       const nextText = JSON.stringify(next);
       if (JSON.stringify(current) !== nextText) { localStorage.setItem(SETTINGS_KEY, nextText); changed = true; }
+    }
+    if (changed && typeof window.kgeuApplySharedProfile === 'function') {
+      await window.kgeuApplySharedProfile(profile);
     }
     return changed;
   }
@@ -3114,19 +3134,14 @@ document.addEventListener("DOMContentLoaded", () => {
         else profile = remote.profileData || localProfile;
         if (merged.addedLocalNotes || merged.conflicts) shouldPush = true;
         if (!meta.initialized || Number(remote.revision || 0) > Number(meta.lastServerRevision || 0)) {
-          const profileChanged = !meta.dirtyProfile && applyProfile(profile);
+          const profileChanged = !meta.dirtyProfile && await applyProfile(profile);
           applyPersonal(personal);
           if (profileChanged) {
             meta.lastServerRevision = Number(remote.revision || 0);
             meta.lastSyncAt = Date.now();
             meta.initialized = true;
             writeMeta(meta);
-            setStatus('Получены общие данные. Обновляю выбранную группу и настройки…');
-            if (!sessionStorage.getItem('kgeu_vk_profile_reloaded_v1')) {
-              sessionStorage.setItem('kgeu_vk_profile_reloaded_v1', '1');
-              window.location.reload();
-              return;
-            }
+            setStatus('Получены общие данные. Выбранная группа и настройки обновлены.');
           }
         }
         if (merged.conflicts) setStatus('Синхронизация выполнена. Есть ' + merged.conflicts + ' заметок с разными версиями — локальная копия сохранена.');
