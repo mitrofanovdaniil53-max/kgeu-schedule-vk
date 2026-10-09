@@ -3316,13 +3316,169 @@ document.addEventListener("DOMContentLoaded", () => {
       if (button) button.disabled = false;
     }
   }
+  function localSharedService() {
+    const cached = readCachedService();
+    return cached || snapshot.serviceData || JSON.parse(JSON.stringify(DEFAULT_SERVICE));
+  }
+  function saveSharedServiceData(data) {
+    data.version = Number(data.version || 4);
+    data.schemaVersion = Number(data.schemaVersion || data.version || 4);
+    data.updatedAt = Date.now();
+    snapshot.serviceData = data;
+    writeCachedService(data);
+    window.kgeuSharedSyncMarkDirty('service');
+    renderSharedServiceView();
+    setStatus('Изменения сервиса сохранены локально и поставлены в очередь синхронизации.');
+  }
+  function sharedServiceNewId(prefix) {
+    return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
+  }
+  function bindSharedServiceEditor() {
+    const root = document.getElementById('shared-service-section');
+    if (!root || root.dataset.editorBound === '1') return;
+    root.dataset.editorBound = '1';
+    root.addEventListener('submit', function (event) {
+      const form = event.target && event.target.closest ? event.target.closest('form[data-shared-service-form]') : null;
+      if (!form) return;
+      event.preventDefault();
+      const kind = form.getAttribute('data-shared-service-form');
+      const fields = new FormData(form);
+      const title = String(fields.get('title') || '').trim();
+      if (!title) return;
+      const data = localSharedService();
+      const now = Date.now();
+      const date = String(fields.get('date') || '');
+      if (kind === 'task') {
+        data.tasks = Array.isArray(data.tasks) ? data.tasks : [];
+        data.tasks.unshift({ id: sharedServiceNewId('t'), title, dueDate: date, subject: String(fields.get('subject') || '').trim(), note: '', done: false, createdAt: now, updatedAt: now });
+      } else if (kind === 'deadline') {
+        data.deadlines = Array.isArray(data.deadlines) ? data.deadlines : [];
+        data.deadlines.unshift({ id: sharedServiceNewId('d'), title, date, subject: String(fields.get('subject') || '').trim(), note: '', done: false, createdAt: now, updatedAt: now });
+      } else if (kind === 'event') {
+        data.events = Array.isArray(data.events) ? data.events : [];
+        data.events.unshift({ id: sharedServiceNewId('e'), title, date, points: Math.max(0, Number(fields.get('points') || 0)), createdAt: now, updatedAt: now });
+      } else if (kind === 'hostel') {
+        data.hostel = data.hostel && typeof data.hostel === 'object' ? data.hostel : { totalGoal: 250, adminGoal: 100, socialGoal: 150, work: [], social: [] };
+        const category = String(fields.get('kind') || 'work') === 'social' ? 'social' : 'work';
+        data.hostel[category] = Array.isArray(data.hostel[category]) ? data.hostel[category] : [];
+        const record = { id: sharedServiceNewId(category === 'work' ? 'w' : 's'), title, date, points: Math.max(0, Number(fields.get('points') || 0)), createdAt: now, updatedAt: now };
+        if (category === 'work') record.minutes = Math.max(0, Number(fields.get('minutes') || 0));
+        else { record.note = ''; record.fileName = ''; record.fileData = ''; }
+        data.hostel[category].unshift(record);
+      } else return;
+      saveSharedServiceData(data);
+      form.reset();
+    });
+    root.addEventListener('click', function (event) {
+      const button = event.target && event.target.closest ? event.target.closest('[data-shared-service-action]') : null;
+      if (!button) return;
+      const action = button.getAttribute('data-shared-service-action');
+      const id = button.getAttribute('data-id') || '';
+      const data = localSharedService();
+      const now = Date.now();
+      let changed = false;
+      if (action === 'toggle-task') {
+        const item = (data.tasks || []).find(x => String(x.id) === id);
+        if (item) { item.done = !item.done; item.updatedAt = now; changed = true; }
+      } else if (action === 'toggle-deadline') {
+        const item = (data.deadlines || []).find(x => String(x.id) === id);
+        if (item) { item.done = !item.done; item.updatedAt = now; changed = true; }
+      } else if (action === 'delete-task') {
+        if (window.confirm('Удалить задачу?')) { data.tasks = (data.tasks || []).filter(x => String(x.id) !== id); changed = true; }
+      } else if (action === 'delete-deadline') {
+        if (window.confirm('Удалить дедлайн?')) { data.deadlines = (data.deadlines || []).filter(x => String(x.id) !== id); changed = true; }
+      } else if (action === 'delete-event') {
+        if (window.confirm('Удалить событие?')) { data.events = (data.events || []).filter(x => String(x.id) !== id); changed = true; }
+      } else if (action === 'delete-hostel') {
+        const category = button.getAttribute('data-kind') === 'social' ? 'social' : 'work';
+        if (window.confirm('Удалить запись ЖБС?')) {
+          data.hostel = data.hostel && typeof data.hostel === 'object' ? data.hostel : {};
+          data.hostel[category] = (Array.isArray(data.hostel[category]) ? data.hostel[category] : []).filter(x => String(x.id) !== id);
+          changed = true;
+        }
+      }
+      if (changed) saveSharedServiceData(data);
+    });
+  }
+  async function forcePushLocalVersion() {
+    if (busy) return;
+    if (!window.confirm('Отправить текущую локальную версию VK в облако? Данные Student Service в облаке будут заменены, а перед этим сохранены в резервную копию.')) return;
+    busy = true;
+    try {
+      const remote = await request('/api/sync', { method: 'GET' });
+      if (!remote || !remote.found) throw new Error('В облаке пока нет версии, которую можно безопасно сравнить. Сначала синхронизируй данные в Telegram.');
+      localStorage.setItem('kgeu_vk_cloud_before_force_push_v1', JSON.stringify(remote));
+      const meta = readMeta();
+      const local = localPersonal();
+      const allLocalNoteKeys = Object.keys(local.notes && typeof local.notes === 'object' ? local.notes : {});
+      const merged = mergeNotes(remote.personalData, local, allLocalNoteKeys);
+      snapshot.serviceData = localSharedService();
+      const profile = readProfile();
+      const result = await request('/api/sync', { method: 'POST', body: JSON.stringify(payloadForSync(merged.personalData, profile)) });
+      meta.lastServerRevision = Number(result.revision || meta.lastServerRevision || 0);
+      meta.lastSyncAt = Date.now();
+      meta.initialized = true;
+      meta.dirty = false;
+      meta.dirtyNotes = [];
+      meta.dirtyProfile = false;
+      meta.dirtyService = false;
+      writeMeta(meta);
+      writeCachedService(snapshot.serviceData);
+      snapshot.personalData = merged.personalData;
+      snapshot.profileData = profile;
+      applyPersonal(merged.personalData);
+      renderSharedServiceView();
+      setStatus('Локальная версия VK отправлена в облако. Предыдущая облачная копия сохранена локально.');
+    } catch (error) {
+      setStatus('Не удалось отправить локальную версию', error.message);
+    } finally {
+      busy = false;
+    }
+  }
+  async function forcePullCloudVersion() {
+    if (busy) return;
+    if (!window.confirm('Заменить локальные данные VK текущей облачной версией? Локальная копия будет сохранена.')) return;
+    busy = true;
+    try {
+      const remote = await request('/api/sync', { method: 'GET' });
+      if (!remote || !remote.found) throw new Error('В облаке пока нет данных. Сначала синхронизируй их в Telegram.');
+      localStorage.setItem('kgeu_vk_service_before_force_pull_v1', JSON.stringify(localSharedService()));
+      snapshot.serviceData = remote.serviceData || DEFAULT_SERVICE;
+      writeCachedService(snapshot.serviceData);
+      applyPersonal(remote.personalData || { version: 1, notes: {} });
+      snapshot.personalData = remote.personalData || { version: 1, notes: {} };
+      snapshot.profileData = remote.profileData || {};
+      await applyProfile(snapshot.profileData);
+      const meta = readMeta();
+      meta.lastServerRevision = Number(remote.revision || 0);
+      meta.lastSyncAt = Date.now();
+      meta.initialized = true;
+      meta.dirty = false;
+      meta.dirtyNotes = [];
+      meta.dirtyProfile = false;
+      meta.dirtyService = false;
+      writeMeta(meta);
+      renderSharedServiceView();
+      setStatus('Облачная версия загружена. Предыдущая локальная копия сохранена.');
+    } catch (error) {
+      setStatus('Не удалось загрузить облачную версию', error.message);
+    } finally {
+      busy = false;
+    }
+  }
+
   function bindControls() {
     const link = document.getElementById('shared-link-submit');
     if (link) link.addEventListener('click', linkAccount);
     const sync = document.getElementById('shared-sync-now');
     if (sync) sync.addEventListener('click', function () { syncNow('manual'); });
+    const push = document.getElementById('shared-force-push');
+    if (push) push.addEventListener('click', forcePushLocalVersion);
+    const pull = document.getElementById('shared-force-pull');
+    if (pull) pull.addEventListener('click', forcePullCloudVersion);
     const input = document.getElementById('shared-link-code');
     if (input) input.addEventListener('input', function () { input.value = input.value.toUpperCase().replace(/[^23456789ABCDEFGHJKLMNPQRSTUVWXYZ]/g, '').slice(0, 8); });
+    bindSharedServiceEditor();
   }
   bindControls();
   renderSharedServiceView();
