@@ -3055,6 +3055,12 @@ document.addEventListener("DOMContentLoaded", () => {
         else conflicts[key] = localValue;
       }
     });
+    (dirtyKeys || []).forEach(function (key) {
+      if (!Object.prototype.hasOwnProperty.call(localNotes, key) && Object.prototype.hasOwnProperty.call(merged, key)) {
+        delete merged[key];
+        changed = true;
+      }
+    });
     if (Object.keys(conflicts).length) {
       try { localStorage.setItem(BACKUP_KEY, JSON.stringify({ savedAt: Date.now(), notes: conflicts })); } catch (e) {}
     }
