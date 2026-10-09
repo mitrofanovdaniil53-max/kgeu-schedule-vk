@@ -2962,9 +2962,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function readMeta() {
     try {
-      return Object.assign({ deviceId: '', lastServerRevision: 0, lastSyncAt: 0, initialized: false, dirty: false, dirtyNotes: [], dirtyProfile: false }, JSON.parse(localStorage.getItem(META_KEY) || '{}'));
+      return Object.assign({ deviceId: '', lastServerRevision: 0, lastSyncAt: 0, initialized: false, dirty: false, dirtyNotes: [], dirtyProfile: false, dirtyService: false }, JSON.parse(localStorage.getItem(META_KEY) || '{}'));
     } catch (e) {
-      return { deviceId: '', lastServerRevision: 0, lastSyncAt: 0, initialized: false, dirty: false, dirtyNotes: [], dirtyProfile: false };
+      return { deviceId: '', lastServerRevision: 0, lastSyncAt: 0, initialized: false, dirty: false, dirtyNotes: [], dirtyProfile: false, dirtyService: false };
     }
   }
   function writeMeta(meta) { try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {} }
@@ -3166,6 +3166,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const meta = readMeta();
     meta.dirty = true;
     if (kind === 'profile') meta.dirtyProfile = true;
+    if (kind === 'service') meta.dirtyService = true;
     if (kind === 'note' && key && meta.dirtyNotes.indexOf(key) < 0) meta.dirtyNotes.push(key);
     writeMeta(meta);
     scheduleSync();
@@ -3190,9 +3191,25 @@ document.addEventListener("DOMContentLoaded", () => {
       let profile = localProfile;
 
       if (remote && remote.found) {
-        snapshot.serviceData = remote.serviceData || DEFAULT_SERVICE;
-        writeCachedService(snapshot.serviceData);
-        renderSharedServiceView();
+        const remoteRevision = Number(remote.revision || 0);
+        const cachedService = readCachedService();
+        if (meta.dirtyService && cachedService) {
+          if (!meta.lastServerRevision || remoteRevision > Number(meta.lastServerRevision || 0)) {
+            snapshot.serviceData = cachedService;
+            renderSharedServiceView();
+            setStatus('Есть конфликт: в Telegram изменились данные после последней синхронизации. Локальная версия VK сохранена; выбери, какую версию оставить, в настройках синхронизации.');
+            return;
+          }
+          snapshot.serviceData = cachedService;
+          shouldPush = true;
+        } else {
+          const revisionChanged = !meta.initialized || remoteRevision > Number(meta.lastServerRevision || 0);
+          snapshot.serviceData = remote.serviceData || DEFAULT_SERVICE;
+          if (revisionChanged) {
+            writeCachedService(snapshot.serviceData);
+            renderSharedServiceView();
+          }
+        }
         const merged = mergeNotes(remote.personalData, local, meta.dirtyNotes || []);
         personal = merged.personalData;
         if (meta.dirtyProfile) profile = localProfile;
@@ -3230,6 +3247,7 @@ document.addEventListener("DOMContentLoaded", () => {
         meta.dirty = false;
         meta.dirtyNotes = [];
         meta.dirtyProfile = false;
+        meta.dirtyService = false;
         writeMeta(meta);
         snapshot.personalData = personal;
         snapshot.profileData = profile;
@@ -3242,6 +3260,7 @@ document.addEventListener("DOMContentLoaded", () => {
         writeMeta(meta);
         snapshot.personalData = personal;
         snapshot.profileData = profile;
+        renderSharedServiceView();
         setStatus('Данные VK и Telegram синхронизированы.');
       }
     } catch (e) {
