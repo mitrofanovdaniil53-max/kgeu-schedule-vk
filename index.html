@@ -3112,9 +3112,13 @@ document.addEventListener("DOMContentLoaded", () => {
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
     });
   }
-  function renderSharedServiceView() {
+  function renderSharedServiceView(resetFormKind) {
     const root = document.getElementById('shared-service-view');
     if (!root) return;
+    const formDrafts = [...root.querySelectorAll('form[data-shared-service-form]')].map(form => ({
+      kind: form.dataset.sharedServiceForm,
+      values: [...form.elements].filter(el => el.name).map(el => ({ name: el.name, value: el.value }))
+    }));
     const previouslyOpen = new Set([...root.querySelectorAll('details[open][data-shared-service-detail]')].map(node => node.dataset.sharedServiceDetail));
     const meta = readMeta();
     const canEdit = !!meta.initialized && Number(meta.lastServerRevision || 0) > 0;
@@ -3169,6 +3173,15 @@ document.addEventListener("DOMContentLoaded", () => {
       '</details>';
     root.querySelectorAll('details[data-shared-service-detail]').forEach(node => {
       node.open = previouslyOpen.has(node.dataset.sharedServiceDetail);
+    });
+    root.querySelectorAll('form[data-shared-service-form]').forEach(form => {
+      if (resetFormKind && form.dataset.sharedServiceForm === resetFormKind) return;
+      const draft = formDrafts.find(item => item.kind === form.dataset.sharedServiceForm);
+      if (!draft) return;
+      draft.values.forEach(item => {
+        const field = [...form.elements].find(el => el.name === item.name);
+        if (field) field.value = item.value;
+      });
     });
   }
 
@@ -3328,14 +3341,14 @@ document.addEventListener("DOMContentLoaded", () => {
     data.hostel.social = Array.isArray(data.hostel.social) ? data.hostel.social : [];
     return data;
   }
-  function saveSharedServiceData(data) {
+  function saveSharedServiceData(data, resetFormKind) {
     data.version = Number(data.version || 4);
     data.schemaVersion = Number(data.schemaVersion || data.version || 4);
     data.updatedAt = Date.now();
     snapshot.serviceData = data;
     writeCachedService(data);
     window.kgeuSharedSyncMarkDirty('service');
-    renderSharedServiceView();
+    renderSharedServiceView(resetFormKind);
     setStatus('Изменения сервиса сохранены локально и поставлены в очередь синхронизации.');
   }
   function sharedServiceNewId(prefix) {
@@ -3374,8 +3387,7 @@ document.addEventListener("DOMContentLoaded", () => {
         else { record.note = ''; record.fileName = ''; record.fileData = ''; }
         data.hostel[category].unshift(record);
       } else return;
-      saveSharedServiceData(data);
-      form.reset();
+      saveSharedServiceData(data, kind);
     });
     root.addEventListener('click', function (event) {
       const button = event.target && event.target.closest ? event.target.closest('[data-shared-service-action]') : null;
