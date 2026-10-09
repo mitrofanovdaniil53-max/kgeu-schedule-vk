@@ -990,6 +990,10 @@ function kgeuSetNote(subject, value) {
     #shared-service-section .shared-service-details summary{cursor:pointer;font-weight:650}
     #shared-service-section .shared-service-list{padding-left:18px;margin:10px 0;display:grid;gap:10px}
     #shared-service-section .shared-service-list li{display:grid;gap:3px}
+    #shared-service-section .shared-service-form{display:grid;gap:8px;padding:10px 0;border-top:1px solid var(--border)}
+    #shared-service-section .shared-service-form strong{font-size:13px}
+    #shared-service-section .shared-service-row-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+    #shared-service-section .shared-service-row-actions button{font-size:11px;padding:6px 8px}
 </style>
 
 <script>
@@ -3108,7 +3112,10 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderSharedServiceView() {
     const root = document.getElementById('shared-service-view');
     if (!root) return;
-    const data = readCachedService() || DEFAULT_SERVICE;
+    const previouslyOpen = new Set([...root.querySelectorAll('details[open][data-shared-service-detail]')].map(node => node.dataset.sharedServiceDetail));
+    const meta = readMeta();
+    const canEdit = !!meta.initialized && Number(meta.lastServerRevision || 0) > 0;
+    const data = readCachedService() || snapshot.serviceData || DEFAULT_SERVICE;
     const tasks = Array.isArray(data.tasks) ? data.tasks : [];
     const deadlines = Array.isArray(data.deadlines) ? data.deadlines : [];
     const events = Array.isArray(data.events) ? data.events : [];
@@ -3124,25 +3131,42 @@ document.addEventListener("DOMContentLoaded", () => {
         + (items.length > 30 ? '<p class="mini-note">Показаны первые 30 из ' + items.length + ' записей.</p>' : '');
     }
     function recordDate(value) { return sharedServiceEscape(value || 'Без даты'); }
+    function rowActions(kind, item, toggleLabel) {
+      const id = sharedServiceEscape(item.id || '');
+      const toggle = toggleLabel ? '<button type="button" class="system-theme-btn" data-shared-service-action="toggle-' + kind + '" data-id="' + id + '">' + toggleLabel + '</button>' : '';
+      return '<div class="shared-service-row-actions">' + toggle + '<button type="button" class="system-theme-btn" data-shared-service-action="delete-' + kind + '" data-id="' + id + '">Удалить</button></div>';
+    }
+    const editForms = canEdit
+      ? '<details class="shared-service-details" data-shared-service-detail="add"><summary>Добавить запись</summary>' +
+        '<form class="shared-service-form" data-shared-service-form="task"><strong>Задача</strong><input class="field" name="title" required maxlength="180" placeholder="Название задачи"><input class="field" name="date" type="date" aria-label="Срок задачи"><input class="field" name="subject" maxlength="100" placeholder="Предмет (необязательно)"><button type="submit" class="primary-btn">Добавить задачу</button></form>' +
+        '<form class="shared-service-form" data-shared-service-form="deadline"><strong>Дедлайн</strong><input class="field" name="title" required maxlength="180" placeholder="Название дедлайна"><input class="field" name="date" type="date" aria-label="Дата дедлайна"><input class="field" name="subject" maxlength="100" placeholder="Предмет (необязательно)"><button type="submit" class="primary-btn">Добавить дедлайн</button></form>' +
+        '<form class="shared-service-form" data-shared-service-form="event"><strong>Событие</strong><input class="field" name="title" required maxlength="180" placeholder="Название события"><input class="field" name="date" type="date" aria-label="Дата события"><input class="field" name="points" type="number" min="0" max="250" step="1" value="0" aria-label="Баллы"><button type="submit" class="primary-btn">Добавить событие</button></form>' +
+        '<form class="shared-service-form" data-shared-service-form="hostel"><strong>Запись ЖБС</strong><select class="field" name="kind"><option value="work">Работа</option><option value="social">Мероприятие</option></select><input class="field" name="title" required maxlength="180" placeholder="Что сделал(а)"><input class="field" name="date" type="date" aria-label="Дата"><input class="field" name="points" type="number" min="0" max="250" step="1" value="1" aria-label="Баллы"><input class="field" name="minutes" type="number" min="0" max="10000" step="5" value="0" aria-label="Минуты работы"><p class="mini-note">Загрузка подтверждающих файлов пока доступна в Telegram.</p><button type="submit" class="primary-btn">Добавить запись ЖБС</button></form>' +
+      '</details>'
+      : '<p class="mini-note">Чтобы не перезаписать данные Telegram до первой синхронизации, редактирование включится после загрузки общей облачной версии.</p>';
     root.innerHTML =
       '<div class="shared-service-stats">' +
         '<div><strong>' + tasks.filter(x => !x.done).length + '</strong><span>активных задач</span></div>' +
         '<div><strong>' + deadlines.filter(x => !x.done).length + '</strong><span>дедлайнов</span></div>' +
         '<div><strong>' + events.length + '</strong><span>событий</span></div>' +
         '<div><strong>' + points + ' / ' + goal + '</strong><span>баллов ЖБС</span></div>' +
-      '</div>' +
-      '<details class="shared-service-details"><summary>Задачи (' + tasks.length + ')</summary>' +
-        list(tasks, item => '<li><strong>' + sharedServiceEscape(item.title || 'Без названия') + '</strong><span>' + recordDate(item.dueDate) + (item.done ? ' · Выполнена' : ' · Активна') + '</span>' + (item.subject ? '<small>' + sharedServiceEscape(item.subject) + '</small>' : '') + '</li>') +
+      '</div>' + editForms +
+      '<details class="shared-service-details" data-shared-service-detail="tasks"><summary>Задачи (' + tasks.length + ')</summary>' +
+        list(tasks, item => '<li><strong>' + sharedServiceEscape(item.title || 'Без названия') + '</strong><span>' + recordDate(item.dueDate) + (item.done ? ' · Выполнена' : ' · Активна') + '</span>' + (item.subject ? '<small>' + sharedServiceEscape(item.subject) + '</small>' : '') + (canEdit ? rowActions('task', item, item.done ? 'Вернуть в активные' : 'Выполнена') : '') + '</li>') +
       '</details>' +
-      '<details class="shared-service-details"><summary>Дедлайны (' + deadlines.length + ')</summary>' +
-        list(deadlines, item => '<li><strong>' + sharedServiceEscape(item.title || 'Без названия') + '</strong><span>' + recordDate(item.date) + (item.done ? ' · Выполнен' : ' · Не выполнен') + '</span>' + (item.subject ? '<small>' + sharedServiceEscape(item.subject) + '</small>' : '') + '</li>') +
+      '<details class="shared-service-details" data-shared-service-detail="deadlines"><summary>Дедлайны (' + deadlines.length + ')</summary>' +
+        list(deadlines, item => '<li><strong>' + sharedServiceEscape(item.title || 'Без названия') + '</strong><span>' + recordDate(item.date) + (item.done ? ' · Выполнен' : ' · Не выполнен') + '</span>' + (item.subject ? '<small>' + sharedServiceEscape(item.subject) + '</small>' : '') + (canEdit ? rowActions('deadline', item, item.done ? 'Вернуть' : 'Выполнен') : '') + '</li>') +
       '</details>' +
-      '<details class="shared-service-details"><summary>События (' + events.length + ')</summary>' +
-        list(events, item => '<li><strong>' + sharedServiceEscape(item.title || 'Без названия') + '</strong><span>' + recordDate(item.date) + ' · ' + Math.max(0, Number(item.points || 0)) + ' балл(ов)</span></li>') +
+      '<details class="shared-service-details" data-shared-service-detail="events"><summary>События (' + events.length + ')</summary>' +
+        list(events, item => '<li><strong>' + sharedServiceEscape(item.title || 'Без названия') + '</strong><span>' + recordDate(item.date) + ' · ' + Math.max(0, Number(item.points || 0)) + ' балл(ов)</span>' + (canEdit ? rowActions('event', item, '') : '') + '</li>') +
       '</details>' +
-      '<details class="shared-service-details"><summary>ЖБС: работа и мероприятия (' + (work.length + social.length) + ')</summary>' +
-        list(work.concat(social), item => '<li><strong>' + sharedServiceEscape(item.title || 'Запись') + '</strong><span>' + recordDate(item.date) + ' · ' + Math.max(0, Number(item.points || 0)) + ' балл(ов)' + (item.minutes ? ' · ' + Math.max(0, Number(item.minutes)) + ' мин.' : '') + '</span></li>') +
+      '<details class="shared-service-details" data-shared-service-detail="hostel"><summary>ЖБС: работа (' + work.length + ') и мероприятия (' + social.length + ')</summary>' +
+        (work.length ? '<h4>Работа</h4>' + list(work, item => '<li><strong>' + sharedServiceEscape(item.title || 'Запись') + '</strong><span>' + recordDate(item.date) + ' · ' + Math.max(0, Number(item.points || 0)) + ' балл(ов) · ' + Math.max(0, Number(item.minutes || 0)) + ' мин.</span>' + (canEdit ? '<div class="shared-service-row-actions"><button type="button" class="system-theme-btn" data-shared-service-action="delete-hostel" data-kind="work" data-id="' + sharedServiceEscape(item.id || '') + '">Удалить</button></div>' : '') + '</li>') : '<p class="mini-note">Записей о работе пока нет.</p>') +
+        (social.length ? '<h4>Мероприятия</h4>' + list(social, item => '<li><strong>' + sharedServiceEscape(item.title || 'Запись') + '</strong><span>' + recordDate(item.date) + ' · ' + Math.max(0, Number(item.points || 0)) + ' балл(ов)</span>' + (canEdit ? '<div class="shared-service-row-actions"><button type="button" class="system-theme-btn" data-shared-service-action="delete-hostel" data-kind="social" data-id="' + sharedServiceEscape(item.id || '') + '">Удалить</button></div>' : '') + '</li>') : '<p class="mini-note">Записей о мероприятиях пока нет.</p>') +
       '</details>';
+    root.querySelectorAll('details[data-shared-service-detail]').forEach(node => {
+      node.open = previouslyOpen.has(node.dataset.sharedServiceDetail);
+    });
   }
 
   function payloadForSync(personal, profile) {
