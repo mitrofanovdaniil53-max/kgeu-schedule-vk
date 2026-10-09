@@ -3230,7 +3230,7 @@ document.addEventListener("DOMContentLoaded", () => {
           snapshot.serviceData = cachedService;
           shouldPush = true;
         } else {
-          const revisionChanged = !meta.initialized || remoteRevision > Number(meta.lastServerRevision || 0);
+          const revisionChanged = !meta.initialized || !cachedService || remoteRevision > Number(meta.lastServerRevision || 0);
           snapshot.serviceData = remote.serviceData || DEFAULT_SERVICE;
           if (revisionChanged) {
             writeCachedService(snapshot.serviceData);
