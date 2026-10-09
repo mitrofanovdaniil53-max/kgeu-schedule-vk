@@ -1288,7 +1288,7 @@ body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10
 
     <div class="settings-section" id="shared-service-section">
       <div class="settings-section-title">Мой сервис из Telegram</div>
-      <div class="mini-note">Общие задачи, дедлайны, события и баллы ЖБС. В первой версии данные здесь доступны для просмотра; редактирование выполняется в Telegram.</div>
+      <div class="mini-note">Общие задачи, дедлайны, события и баллы ЖБС можно просматривать и редактировать здесь. Подтверждающие файлы к записям ЖБС пока добавляются в Telegram.</div>
       <div id="shared-service-view" aria-live="polite"></div>
     </div>
     <div class="settings-section about-section">
@@ -3279,6 +3279,7 @@ document.addEventListener("DOMContentLoaded", () => {
         snapshot.personalData = personal;
         snapshot.profileData = profile;
         applyPersonal(personal);
+        renderSharedServiceView();
         setStatus('Данные VK и Telegram синхронизированы.');
       } else {
         meta.lastServerRevision = Number(remote && remote.revision || meta.lastServerRevision || 0);
@@ -3442,7 +3443,12 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const remote = await request('/api/sync', { method: 'GET' });
       if (!remote || !remote.found) throw new Error('В облаке пока нет данных. Сначала синхронизируй их в Telegram.');
-      localStorage.setItem('kgeu_vk_service_before_force_pull_v1', JSON.stringify(localSharedService()));
+      localStorage.setItem('kgeu_vk_local_before_force_pull_v1', JSON.stringify({
+        savedAt: Date.now(),
+        serviceData: localSharedService(),
+        personalData: localPersonal(),
+        profileData: readProfile()
+      }));
       snapshot.serviceData = remote.serviceData || DEFAULT_SERVICE;
       writeCachedService(snapshot.serviceData);
       applyPersonal(remote.personalData || { version: 1, notes: {} });
