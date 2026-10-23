@@ -49,12 +49,37 @@ function kgeuSubjectKey(subject) {
   return String(subject || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function kgeuGroupNoteKey(subject, groupId) {
+  const group = Number(groupId || (typeof activeGroupId !== "undefined" ? activeGroupId : 0));
+  const key = kgeuSubjectKey(subject);
+  return group > 0 && key ? "group:" + group + "::" + key : key;
+}
+
+function kgeuMigrateLegacyNotesForActiveGroup() {
+  try {
+    const notes = kgeuPersonalData && kgeuPersonalData.notes;
+    const group = Number(typeof activeGroupId !== "undefined" ? activeGroupId : 0);
+    if (!notes || typeof notes !== "object" || !group) return;
+    const prefix = "group:" + group + "::";
+    let changed = false;
+    Object.keys(notes).forEach(function(key) {
+      if (key.indexOf("group:") === 0) return;
+      const scopedKey = prefix + key;
+      if (!Object.prototype.hasOwnProperty.call(notes, scopedKey)) notes[scopedKey] = notes[key];
+      delete notes[key];
+      changed = true;
+    });
+    if (changed) kgeuSavePersonalData(kgeuPersonalData);
+  } catch (e) {}
+}
+
 function kgeuGetNote(subject) {
-  return String(kgeuPersonalData.notes[kgeuSubjectKey(subject)] || "");
+  const key = kgeuGroupNoteKey(subject);
+  return String(kgeuPersonalData.notes[key] || "");
 }
 
 function kgeuSetNote(subject, value) {
-  const key = kgeuSubjectKey(subject);
+  const key = kgeuGroupNoteKey(subject);
   if (!key) return;
   const note = String(value || "").trim();
   if (note) kgeuPersonalData.notes[key] = note;
@@ -1291,6 +1316,7 @@ body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10
   const SETTINGS_KEY = 'kgeu_vk_settings_v1';
   const CACHE_TTL = 30 * 60 * 1000;
 
+  const hasExplicitGroupFromLaunch = Boolean(Number(params.get('groupId')) || Number(hashParams.get('groupId')));
   let activeGroupId = Number(params.get('groupId')) || Number(hashParams.get('groupId')) || 0;
   let GROUP_NAME = params.get('groupName') || hashParams.get('groupName') || '';
   let INSTITUTE_NAME = params.get('institute') || hashParams.get('institute') || '';
@@ -1368,6 +1394,7 @@ body.dark .kgeu-note-icon.has-note{color:#8FB1FF;background:rgba(143,177,255,.10
   updateGroupLabel();
   saveActiveGroup();
   rememberGroup(activeGroupId, GROUP_NAME);
+  kgeuMigrateLegacyNotesForActiveGroup();
 
   function updateGroupLabel() {
     const sub = document.getElementById('group-sub');
