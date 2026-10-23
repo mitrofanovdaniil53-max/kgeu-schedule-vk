@@ -67,7 +67,7 @@ test('failed save restores the original in-memory notes', () => {
   const initial = { version: 1, notes: { mathematics: 'recover me' } };
   const h = makeHarness(initial, { failSave: true });
   assert.equal(h.run(), false);
-  assert.deepEqual(h.data, initial);
+  assert.equal(JSON.stringify(h.data), JSON.stringify(initial));
   assert.deepEqual(
     JSON.parse(h.storage.get('kgeu_vk_notes_migration_backup_v1')),
     initial
