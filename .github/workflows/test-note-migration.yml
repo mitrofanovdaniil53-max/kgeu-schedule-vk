@@ -1,0 +1,17 @@
+name: VK note migration tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test-note-migration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Test backup-protected note migration
+        run: node --test tests/note-migration.test.cjs
