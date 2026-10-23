@@ -59,18 +59,42 @@ function kgeuMigrateLegacyNotesForActiveGroup() {
   try {
     const notes = kgeuPersonalData && kgeuPersonalData.notes;
     const group = Number(typeof activeGroupId !== "undefined" ? activeGroupId : 0);
-    if (!notes || typeof notes !== "object" || !group) return;
+    if (!notes || typeof notes !== "object" || !group) return false;
+    const legacyKeys = Object.keys(notes).filter(function(key) {
+      return key.indexOf("group:") !== 0;
+    });
+    if (!legacyKeys.length) return false;
+
+    // Preserve the full pre-migration state before mutating any note keys.
+    const backupKey = "kgeu_vk_notes_migration_backup_v1";
+    let backupJson;
+    try {
+      backupJson = JSON.stringify(kgeuPersonalData);
+      localStorage.setItem(backupKey, backupJson);
+      backupJson = localStorage.getItem(backupKey);
+      if (!backupJson) return false;
+    } catch (e) {
+      return false;
+    }
+
     const prefix = "group:" + group + "::";
-    let changed = false;
-    Object.keys(notes).forEach(function(key) {
-      if (key.indexOf("group:") === 0) return;
+    legacyKeys.forEach(function(key) {
       const scopedKey = prefix + key;
       if (!Object.prototype.hasOwnProperty.call(notes, scopedKey)) notes[scopedKey] = notes[key];
       delete notes[key];
-      changed = true;
     });
-    if (changed) kgeuSavePersonalData(kgeuPersonalData);
-  } catch (e) {}
+
+    if (!kgeuSavePersonalData(kgeuPersonalData)) {
+      // Restore the in-memory copy too; a failed save must not look like a completed migration.
+      try {
+        kgeuPersonalData = JSON.parse(backupJson);
+      } catch (e) {}
+      return false;
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 function kgeuGetNote(subject) {
